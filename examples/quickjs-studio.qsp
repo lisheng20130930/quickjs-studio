@@ -5,4 +5,4 @@ Arguments="$(ProjectDir)\math\distance.js" "$(ProjectDir)\game\player.js" "$(Pro
 WorkingDirectory=.
 ScriptRoot=.
 Entry=game.js
-HostApi=api/engine.api.js
+HostApi=.quickjs-studio/host-api.js

@@ -4,14 +4,15 @@ QuickJS Studio 可以通过一个独立的 JavaScript 声明文件识别宿主�
 
 ## 1. 建立声明文件
 
-建议在工程内建立 `api` 目录，并使用 `.api.js` 后缀：
+建议在工程内建立专用的 `.quickjs-studio` 元数据目录。它与业务源码分开，不会占用工程自己的 `api`、`src` 等目录：
 
 ```text
 my-game/
 ├── game.qsp
 ├── main.js
-└── api/
-    └── engine.api.js
+├── api/                         # 业务自己的 API 源码
+└── .quickjs-studio/
+    └── host-api.js              # 仅供 IDE 使用的宿主声明
 ```
 
 假设宿主使用 QuickJS 注册了 `Engine.log()`、`Engine.drawSprite()` 和 `Engine.loadTexture()`，声明文件可以写成：
@@ -54,7 +55,7 @@ Arguments="$(Entry)"
 WorkingDirectory=.
 ScriptRoot=.
 Entry=main.js
-HostApi=api/engine.api.js
+HostApi=.quickjs-studio/host-api.js
 ```
 
 `HostApi` 相对于 `.qsp` 所在目录解析，也可以填写绝对路径。还可以通过 `Project > Settings...` 的 `Host API file` 设置。
@@ -66,8 +67,10 @@ HostApi=api/engine.api.js
 - 输入 `Eng`，自动补全中出现 `Engine`；
 - 输入 `Engine.`，候选列表只显示 `Engine` 声明的方法；
 - 光标放在 `Engine.log` 的 `log` 上，Context Field 显示该符号，Definition Field 显示 `static log(text) {}`；
-- 点击 `Go`、按 `F12` 或使用右键 `Go to Definition`，跳到 `engine.api.js` 中的声明位置；
+- 点击 `Go`、按 `F12` 或使用右键 `Go to Definition`，跳到 `host-api.js` 中的声明位置；
 - 保存声明文件后，工程符号和补全候选会自动刷新。
+
+`HostApi` 是 IDE 元数据，不是运行脚本，因此不会列在 FileView 的 `Source Files` 中。通过 F12、`Go` 或 Definition Field 跳转时，IDE 仍会直接打开该声明文件。
 
 ## 4. 声明文件不会参与运行
 
@@ -81,7 +84,7 @@ QuickJS Studio 不会自动加载 `HostApi`。宿主仍然只执行 `.qsp` 的 `
 - 声明文件应与宿主代码一起提交到版本库；
 - 声明只描述公开给脚本使用的接口，不需要复制 C 实现；
 - 参数名应使用业务含义明确的名称，它们会直接显示在 Definition Field 中；
-- 大型宿主可以按模块维护声明，再生成一个汇总的 `engine.api.js`。
+- 大型宿主可以按模块维护声明，再生成一个汇总的 `host-api.js`。
 
 ## 6. 当前边界
 

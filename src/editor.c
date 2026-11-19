@@ -147,7 +147,7 @@ void editor_update_brace_highlight(HWND editor)
         sci(editor, SCI_BRACEBADLIGHT, brace, 0);
 }
 
-int editor_complete_brace_block(HWND editor)
+static int complete_brace_block(HWND editor)
 {
     LRESULT position = sci(editor, SCI_GETCURRENTPOS, 0, 0);
     int line = (int)sci(editor, SCI_LINEFROMPOSITION, position, 0);
@@ -224,6 +224,97 @@ int editor_complete_brace_block(HWND editor)
     sci(editor, SCI_ENDUNDOACTION, 0, 0);
     free(closing);
     return 1;
+}
+
+void editor_handle_newline(HWND editor)
+{
+    LRESULT position;
+    LRESULT previous_end;
+    LRESULT indentation_position;
+    int line;
+    int indentation;
+
+    if (complete_brace_block(editor))
+        return;
+    position = sci(editor, SCI_GETCURRENTPOS, 0, 0);
+    line = (int)sci(editor, SCI_LINEFROMPOSITION, position, 0);
+    if (line <= 0)
+        return;
+    indentation = (int)sci(editor, SCI_GETLINEINDENTATION, line - 1, 0);
+    previous_end = sci(editor, SCI_GETLINEENDPOSITION, line - 1, 0);
+    while (previous_end > 0) {
+        int character = (int)sci(editor, SCI_GETCHARAT, previous_end - 1, 0);
+        if (character != ' ' && character != '\t')
+            break;
+        previous_end--;
+    }
+    if (previous_end > 0 && sci(editor, SCI_GETCHARAT, previous_end - 1, 0) == '{')
+        indentation += 4;
+
+    sci(editor, SCI_BEGINUNDOACTION, 0, 0);
+    sci(editor, SCI_SETLINEINDENTATION, line, indentation);
+    indentation_position = sci(editor, SCI_GETLINEINDENTPOSITION, line, 0);
+    sci(editor, SCI_SETSEL, indentation_position, indentation_position);
+    sci(editor, SCI_ENDUNDOACTION, 0, 0);
+}
+
+void editor_handle_closing_brace(HWND editor)
+{
+    LRESULT position = sci(editor, SCI_GETCURRENTPOS, 0, 0);
+    LRESULT brace = position - 1;
+    LRESULT line_start;
+    LRESULT match;
+    LRESULT new_brace;
+    int line;
+    int indentation;
+
+    if (brace < 0 || sci(editor, SCI_GETCHARAT, brace, 0) != '}')
+        return;
+    line = (int)sci(editor, SCI_LINEFROMPOSITION, brace, 0);
+    line_start = sci(editor, SCI_POSITIONFROMLINE, line, 0);
+    for (LRESULT cursor = line_start; cursor < brace; cursor++) {
+        int character = (int)sci(editor, SCI_GETCHARAT, cursor, 0);
+        if (character != ' ' && character != '\t')
+            return;
+    }
+    match = sci(editor, SCI_BRACEMATCH, brace, 0);
+    if (match < 0)
+        return;
+    indentation =
+        (int)sci(editor, SCI_GETLINEINDENTATION, sci(editor, SCI_LINEFROMPOSITION, match, 0), 0);
+    sci(editor, SCI_BEGINUNDOACTION, 0, 0);
+    sci(editor, SCI_SETLINEINDENTATION, line, indentation);
+    new_brace = sci(editor, SCI_GETLINEINDENTPOSITION, line, 0);
+    sci(editor, SCI_SETSEL, new_brace + 1, new_brace + 1);
+    sci(editor, SCI_ENDUNDOACTION, 0, 0);
+}
+
+void editor_get_view_state(HWND editor, EditorViewState *state)
+{
+    if (!state)
+        return;
+    state->position = sci(editor, SCI_GETCURRENTPOS, 0, 0);
+    state->anchor = sci(editor, SCI_GETANCHOR, 0, 0);
+    state->first_visible_line = (int)sci(editor, SCI_GETFIRSTVISIBLELINE, 0, 0);
+    state->x_offset = (int)sci(editor, SCI_GETXOFFSET, 0, 0);
+}
+
+void editor_set_view_state(HWND editor, const EditorViewState *state)
+{
+    LRESULT length;
+    LRESULT position;
+    LRESULT anchor;
+
+    if (!state)
+        return;
+    length = sci(editor, SCI_GETLENGTH, 0, 0);
+    position = state->position < 0 ? 0 : (state->position > length ? length : state->position);
+    anchor = state->anchor < 0 ? 0 : (state->anchor > length ? length : state->anchor);
+    sci(editor, SCI_SETSEL, anchor, position);
+    sci(editor, SCI_SETFIRSTVISIBLELINE,
+        state->first_visible_line < 0 ? 0 : state->first_visible_line, 0);
+    sci(editor, SCI_SETXOFFSET, state->x_offset < 0 ? 0 : state->x_offset, 0);
+    SetFocus(editor);
 }
 
 void editor_update_line_number_margin(HWND editor)

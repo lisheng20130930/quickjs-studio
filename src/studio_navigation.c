@@ -8,6 +8,183 @@
 #include <stdlib.h>
 #include <string.h>
 
+static int capture_current_location(StudioSourceLocation *location)
+{
+    if (!location || !editor_path()[0])
+        return 0;
+    snprintf(location->path, sizeof(location->path), "%s", editor_path());
+    editor_get_view_state(studio.editor, &location->view);
+    return 1;
+}
+
+static int same_file(const StudioSourceLocation *location, const char *path)
+{
+    return location && path && _stricmp(location->path, path) == 0;
+}
+
+static int same_location(const StudioSourceLocation *left, const StudioSourceLocation *right)
+{
+    return left && right && same_file(left, right->path) &&
+           left->view.position == right->view.position && left->view.anchor == right->view.anchor;
+}
+
+static StudioSourceLocation *document_state(const char *path, int create)
+{
+    for (int index = 0; index < studio.document_state_count; index++) {
+        if (same_file(&studio.document_states[index], path))
+            return &studio.document_states[index];
+    }
+    if (!create)
+        return NULL;
+    if (studio.document_state_count == STUDIO_MAX_DOCUMENT_STATES) {
+        memmove(&studio.document_states[0], &studio.document_states[1],
+                (STUDIO_MAX_DOCUMENT_STATES - 1) * sizeof(studio.document_states[0]));
+        studio.document_state_count--;
+    }
+    StudioSourceLocation *state = &studio.document_states[studio.document_state_count++];
+    memset(state, 0, sizeof(*state));
+    snprintf(state->path, sizeof(state->path), "%s", path);
+    return state;
+}
+
+void studio_remember_current_document(void)
+{
+    StudioSourceLocation current;
+    StudioSourceLocation *saved;
+
+    if (!capture_current_location(&current))
+        return;
+    saved = document_state(current.path, 1);
+    if (saved)
+        *saved = current;
+}
+
+static void restore_document_view(const char *path)
+{
+    StudioSourceLocation *saved = document_state(path, 0);
+    EditorViewState initial = {0};
+
+    editor_set_view_state(studio.editor, saved ? &saved->view : &initial);
+}
+
+void studio_reset_document_navigation(void)
+{
+    studio.document_state_count = 0;
+    studio.navigation_history_count = 0;
+    studio.navigation_history_index = -1;
+}
+
+static void append_navigation_location(const StudioSourceLocation *location)
+{
+    if (!location)
+        return;
+    if (studio.navigation_history_count > 0 &&
+        same_location(&studio.navigation_history[studio.navigation_history_count - 1], location)) {
+        studio.navigation_history[studio.navigation_history_count - 1] = *location;
+        studio.navigation_history_index = studio.navigation_history_count - 1;
+        return;
+    }
+    if (studio.navigation_history_count == STUDIO_MAX_NAVIGATION_HISTORY) {
+        memmove(&studio.navigation_history[0], &studio.navigation_history[1],
+                (STUDIO_MAX_NAVIGATION_HISTORY - 1) * sizeof(studio.navigation_history[0]));
+        studio.navigation_history_count--;
+        if (studio.navigation_history_index > 0)
+            studio.navigation_history_index--;
+    }
+    studio.navigation_history[studio.navigation_history_count++] = *location;
+    studio.navigation_history_index = studio.navigation_history_count - 1;
+}
+
+static void prepare_navigation(void)
+{
+    StudioSourceLocation current;
+
+    if (!capture_current_location(&current))
+        return;
+    if (studio.navigation_history_index >= 0 &&
+        studio.navigation_history_index < studio.navigation_history_count &&
+        same_file(&studio.navigation_history[studio.navigation_history_index], current.path)) {
+        studio.navigation_history[studio.navigation_history_index] = current;
+        studio.navigation_history_count = studio.navigation_history_index + 1;
+        return;
+    }
+    studio.navigation_history_count = studio.navigation_history_index + 1;
+    append_navigation_location(&current);
+}
+
+static void finish_navigation(void)
+{
+    StudioSourceLocation current;
+
+    if (capture_current_location(&current))
+        append_navigation_location(&current);
+}
+
+static int restore_navigation_location(const StudioSourceLocation *location)
+{
+    if (!location || GetFileAttributesA(location->path) == INVALID_FILE_ATTRIBUTES ||
+        !studio_open_script(location->path))
+        return 0;
+    editor_set_view_state(studio.editor, &location->view);
+    studio_sync_wizard_to_caret();
+    studio_update_caret_status();
+    return 1;
+}
+
+static void update_current_history_location(void)
+{
+    StudioSourceLocation current;
+
+    if (!capture_current_location(&current))
+        return;
+    if (studio.navigation_history_index >= 0 &&
+        studio.navigation_history_index < studio.navigation_history_count &&
+        same_file(&studio.navigation_history[studio.navigation_history_index], current.path)) {
+        studio.navigation_history[studio.navigation_history_index] = current;
+        return;
+    }
+    studio.navigation_history_count = studio.navigation_history_index + 1;
+    append_navigation_location(&current);
+}
+
+int studio_navigate_to(const char *path, int line)
+{
+    prepare_navigation();
+    if (!studio_open_script(path))
+        return 0;
+    if (line > 0)
+        editor_goto_line(studio.editor, line - 1);
+    finish_navigation();
+    return 1;
+}
+
+void studio_navigate_back(void)
+{
+    update_current_history_location();
+    if (studio.navigation_history_index <= 0) {
+        studio_set_status("No previous location");
+        return;
+    }
+    studio.navigation_history_index--;
+    if (!restore_navigation_location(&studio.navigation_history[studio.navigation_history_index])) {
+        studio_set_status("Previous location is unavailable");
+    }
+}
+
+void studio_navigate_forward(void)
+{
+    update_current_history_location();
+    if (studio.navigation_history_index < 0 ||
+        studio.navigation_history_index + 1 >= studio.navigation_history_count) {
+        studio_set_status("No next location");
+        return;
+    }
+    studio.navigation_history_index++;
+    if (!restore_navigation_location(&studio.navigation_history[studio.navigation_history_index])) {
+        studio_set_status("Next location is unavailable");
+    }
+}
+
 void studio_sync_current_breakpoints(void)
 {
     const char *path = editor_path();
@@ -225,6 +402,7 @@ int studio_open_script(const char *path)
         if (answer == IDCANCEL || (answer == IDYES && !editor_save(studio.editor)))
             return 0;
     }
+    studio_remember_current_document();
     studio_sync_current_breakpoints();
     if (!editor_open(studio.editor, path)) {
         studio_show_error(studio.window, "Cannot open the JavaScript file.");
@@ -239,9 +417,11 @@ int studio_open_script(const char *path)
         if (_stricmp(studio.breakpoints[i].path, path) == 0)
             editor_toggle_breakpoint(studio.editor, studio.breakpoints[i].line - 1);
     }
+    restore_document_view(path);
     studio_refresh_navigation_files();
     studio_refresh_navigation_symbols();
     studio_sync_wizard_to_caret();
+    studio_update_caret_status();
     return 1;
 }
 
@@ -261,11 +441,7 @@ int studio_go_to_navigation_symbol(void)
         return 0;
     snprintf(path, sizeof(path), "%s", studio.wizard_symbols[definition_index].path);
     line = studio.wizard_symbols[definition_index].definition.line;
-    if (studio_open_script(path)) {
-        editor_goto_line(studio.editor, line - 1);
-        return 1;
-    }
-    return 0;
+    return studio_navigate_to(path, line);
 }
 
 static int go_to_selected_definition(void)
@@ -281,10 +457,8 @@ static int go_to_selected_definition(void)
     definition_count =
         symbol_list_file_definitions(editor_path(), definitions, (int)ARRAYSIZE(definitions));
     for (int index = 0; index < definition_count; index++) {
-        if (strcmp(definitions[index].name, symbol) == 0) {
-            editor_goto_line(studio.editor, definitions[index].line - 1);
-            return 1;
-        }
+        if (strcmp(definitions[index].name, symbol) == 0)
+            return studio_navigate_to(editor_path(), definitions[index].line);
     }
     path[0] = '\0';
     line = 0;
@@ -304,11 +478,7 @@ static int go_to_selected_definition(void)
     if (!path[0]) {
         return 0;
     }
-    if (studio_open_script(path)) {
-        editor_goto_line(studio.editor, line - 1);
-        return 1;
-    }
-    return 0;
+    return studio_navigate_to(path, line);
 }
 
 void studio_go_to_definition(void)
@@ -526,6 +696,31 @@ static TreeTarget *copy_tree_target(const char *path, int line, int is_directory
     return target;
 }
 
+static int is_javascript_file(const char *name)
+{
+    size_t length = strlen(name);
+
+    return length >= 3 && _stricmp(name + length - 3, ".js") == 0;
+}
+
+static int is_host_api_path(const char *path)
+{
+    return studio.project.host_api[0] && _stricmp(path, studio.project.host_api) == 0;
+}
+
+static int directory_contains_host_api(const char *directory)
+{
+    size_t length;
+
+    if (!studio.project.host_api[0])
+        return 0;
+    length = strlen(directory);
+    while (length > 0 && (directory[length - 1] == '\\' || directory[length - 1] == '/'))
+        length--;
+    return _strnicmp(directory, studio.project.host_api, length) == 0 &&
+           (studio.project.host_api[length] == '\\' || studio.project.host_api[length] == '/');
+}
+
 static void populate_directory(HTREEITEM parent, const char *directory)
 {
     char pattern[MAX_PATH];
@@ -541,7 +736,6 @@ static void populate_directory(HTREEITEM parent, const char *directory)
             char path[MAX_PATH];
             TVINSERTSTRUCTA insert = {0};
             int is_directory;
-            size_t name_length;
 
             if (strcmp(data.cFileName, ".") == 0 || strcmp(data.cFileName, "..") == 0)
                 continue;
@@ -550,6 +744,8 @@ static void populate_directory(HTREEITEM parent, const char *directory)
                 continue;
             snprintf(path, sizeof(path), "%s\\%s", directory, data.cFileName);
             if (project_is_excluded(&studio.project, path))
+                continue;
+            if (is_host_api_path(path))
                 continue;
             insert.hParent = parent;
             insert.hInsertAfter = TVI_LAST;
@@ -562,10 +758,11 @@ static void populate_directory(HTREEITEM parent, const char *directory)
                 insert.item.lParam = (LPARAM)copy_tree_target(path, 0, 1, 1);
                 HTREEITEM branch = TreeView_InsertItem(studio.tree, &insert);
                 populate_directory(branch, path);
+                if (directory_contains_host_api(path) && !TreeView_GetChild(studio.tree, branch))
+                    TreeView_DeleteItem(studio.tree, branch);
                 continue;
             }
-            name_length = strlen(data.cFileName);
-            if (name_length < 3 || _stricmp(data.cFileName + name_length - 3, ".js") != 0)
+            if (!is_javascript_file(data.cFileName))
                 continue;
             insert.item.mask |= TVIF_PARAM;
             insert.item.lParam = (LPARAM)copy_tree_target(path, 0, 0, 1);

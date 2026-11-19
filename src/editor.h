@@ -3,6 +3,13 @@
 
 #include <windows.h>
 
+typedef struct EditorViewState {
+    LRESULT position;
+    LRESULT anchor;
+    int first_visible_line;
+    int x_offset;
+} EditorViewState;
+
 int editor_load_components(void);
 void editor_unload_components(void);
 HWND editor_create(HWND parent, int control_id);
@@ -18,7 +25,10 @@ void editor_goto_line(HWND editor, int line);
 void editor_update_line_number_margin(HWND editor);
 void editor_apply_semantic_colors(HWND editor);
 void editor_update_brace_highlight(HWND editor);
-int editor_complete_brace_block(HWND editor);
+void editor_handle_newline(HWND editor);
+void editor_handle_closing_brace(HWND editor);
+void editor_get_view_state(HWND editor, EditorViewState *state);
+void editor_set_view_state(HWND editor, const EditorViewState *state);
 int editor_collect_breakpoints(HWND editor, int *lines, int capacity);
 void editor_toggle_breakpoint(HWND editor, int line);
 void editor_set_execution_line(HWND editor, int line);

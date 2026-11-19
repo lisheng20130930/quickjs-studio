@@ -26,7 +26,7 @@ int main(void)
     snprintf(project_path, sizeof(project_path), "%s\\sample.qsp", directory);
     snprintf(source_directory, sizeof(source_directory), "%s\\legacy", directory);
     snprintf(source_file, sizeof(source_file), "%s\\unused.js", source_directory);
-    snprintf(host_api, sizeof(host_api), "%s\\engine.api.js", directory);
+    snprintf(host_api, sizeof(host_api), "%s\\host-api.js", directory);
     assert(CreateDirectoryA(source_directory, NULL));
     file = fopen(source_file, "wb");
     assert(file != NULL);

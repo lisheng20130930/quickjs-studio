@@ -7,6 +7,7 @@
 #include <commctrl.h>
 
 #include "debug_session.h"
+#include "editor.h"
 #include "project.h"
 #include "symbol_search.h"
 
@@ -34,6 +35,8 @@ enum {
     ID_EDIT_REPLACE,
     ID_EDIT_GO_TO_LINE,
     ID_EDIT_GO_TO_DEFINITION,
+    ID_EDIT_NAVIGATE_BACK,
+    ID_EDIT_NAVIGATE_FORWARD,
     ID_EDIT_AUTOCOMPLETE,
     ID_EDIT_TOGGLE_BOOKMARK,
     ID_EDIT_NEXT_BOOKMARK,
@@ -103,6 +106,8 @@ enum {
 #define NAVIGATION_HEIGHT 26
 #define WORKSPACE_CAPTION_HEIGHT 14
 #define LEFT_TABS_HEIGHT 24
+#define STUDIO_MAX_DOCUMENT_STATES 256
+#define STUDIO_MAX_NAVIGATION_HISTORY 256
 
 typedef struct TreeTarget {
     char path[MAX_PATH];
@@ -115,6 +120,11 @@ typedef struct WizardSymbol {
     SymbolDefinition definition;
     char path[MAX_PATH];
 } WizardSymbol;
+
+typedef struct StudioSourceLocation {
+    char path[MAX_PATH];
+    EditorViewState view;
+} StudioSourceLocation;
 
 typedef struct StudioWindow {
     HWND window;
@@ -168,6 +178,11 @@ typedef struct StudioWindow {
     int navigation_file_count;
     int wizard_symbol_count;
     int wizard_target_index;
+    StudioSourceLocation document_states[STUDIO_MAX_DOCUMENT_STATES];
+    int document_state_count;
+    StudioSourceLocation navigation_history[STUDIO_MAX_NAVIGATION_HISTORY];
+    int navigation_history_count;
+    int navigation_history_index;
     struct {
         char expression[256];
         int request;
@@ -189,6 +204,7 @@ LRESULT CALLBACK studio_output_proc(HWND window, UINT message, WPARAM wparam, LP
 /* Shell/UI services shared by the controller modules. */
 void studio_set_document_close_button(int visible);
 void studio_update_editor_title(const char *path);
+void studio_refresh_editor_title(void);
 void studio_show_error(HWND parent, const char *message);
 void studio_output_append(const char *format, ...);
 void studio_set_status(const char *text);
@@ -220,6 +236,11 @@ int studio_go_to_navigation_symbol(void);
 int studio_is_completion_character(int character);
 TreeTarget *studio_selected_tree_target(void);
 int studio_open_script(const char *path);
+int studio_navigate_to(const char *path, int line);
+void studio_navigate_back(void);
+void studio_navigate_forward(void);
+void studio_remember_current_document(void);
+void studio_reset_document_navigation(void);
 void studio_go_to_definition(void);
 void studio_show_autocomplete(int forced);
 void studio_populate_project_tree(void);

@@ -42,6 +42,7 @@ int studio_load_project(const char *path)
     }
     if (debug_session_is_running(&studio.debug))
         debug_session_stop(&studio.debug);
+    studio_reset_document_navigation();
     editor_reset(studio.editor);
     ShowWindow(studio.editor, SW_HIDE);
     ShowWindow(studio.document_background, SW_SHOW);
@@ -73,6 +74,7 @@ void studio_close_workspace(void)
     }
     if (debug_session_is_running(&studio.debug))
         debug_session_stop(&studio.debug);
+    studio_reset_document_navigation();
     editor_reset(studio.editor);
     ShowWindow(studio.editor, SW_HIDE);
     ShowWindow(studio.document_background, SW_SHOW);
@@ -101,6 +103,7 @@ void studio_close_current_script(void)
     }
     if (debug_session_is_running(&studio.debug))
         debug_session_stop(&studio.debug);
+    studio_remember_current_document();
     studio_sync_current_breakpoints();
     editor_reset(studio.editor);
     ShowWindow(studio.editor, SW_HIDE);

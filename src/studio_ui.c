@@ -35,18 +35,32 @@ void studio_set_document_close_button(int visible)
     DrawMenuBar(studio.window);
 }
 
-void studio_update_editor_title(const char *path)
+static void set_editor_title(const char *path)
 {
     char title[MAX_PATH + 80];
 
-    if (!path || !path[0]) {
+    if (!path || !path[0])
         SetWindowTextA(studio.window, "QuickJS Studio");
+    else {
+        snprintf(title, sizeof(title), "%s%s - QuickJS Studio", path,
+                 editor_is_modified(studio.editor) ? " *" : "");
+        SetWindowTextA(studio.window, title);
+    }
+}
+
+void studio_update_editor_title(const char *path)
+{
+    set_editor_title(path);
+    if (!path || !path[0]) {
         studio_set_status("Ready");
         return;
     }
-    snprintf(title, sizeof(title), "%s - QuickJS Studio", path);
-    SetWindowTextA(studio.window, title);
     studio_set_status(path);
+}
+
+void studio_refresh_editor_title(void)
+{
+    set_editor_title(editor_path());
 }
 
 void studio_show_error(HWND parent, const char *message)
@@ -459,6 +473,8 @@ HMENU studio_create_menu(void)
     AppendMenuA(edit, MF_POPUP, (UINT_PTR)bookmarks, "Bookmarks");
     AppendMenuA(edit, MF_SEPARATOR, 0, NULL);
     AppendMenuA(edit, MF_STRING, ID_EDIT_GO_TO_DEFINITION, "Go To Definition\tF12");
+    AppendMenuA(edit, MF_STRING, ID_EDIT_NAVIGATE_BACK, "Navigate Back\tAlt+Left");
+    AppendMenuA(edit, MF_STRING, ID_EDIT_NAVIGATE_FORWARD, "Navigate Forward\tAlt+Right");
 
     AppendMenuA(toolbars, MF_STRING | MF_CHECKED, ID_VIEW_TOOLBAR, "Standard and Debug");
     AppendMenuA(toolbars, MF_STRING | MF_CHECKED, ID_VIEW_WIZARDBAR, "WizardBar");
@@ -798,6 +814,8 @@ HACCEL studio_create_accelerators(void)
                             {FVIRTKEY, VK_F2, ID_EDIT_NEXT_BOOKMARK},
                             {FVIRTKEY | FSHIFT, VK_F2, ID_EDIT_PREVIOUS_BOOKMARK},
                             {FVIRTKEY, VK_F12, ID_EDIT_GO_TO_DEFINITION},
+                            {FVIRTKEY | FALT, VK_LEFT, ID_EDIT_NAVIGATE_BACK},
+                            {FVIRTKEY | FALT, VK_RIGHT, ID_EDIT_NAVIGATE_FORWARD},
                             {FVIRTKEY, VK_F5, ID_DEBUG_START},
                             {FVIRTKEY | FSHIFT, VK_F5, ID_DEBUG_STOP},
                             {FVIRTKEY, VK_F9, ID_DEBUG_BREAKPOINT},

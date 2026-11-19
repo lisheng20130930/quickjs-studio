@@ -126,8 +126,8 @@ LRESULT CALLBACK studio_output_proc(HWND window, UINT message, WPARAM wparam, LP
             line_marker = strrchr(text, '(');
             if (line_marker && sscanf(line_marker, "(%d):", &source_line) == 1) {
                 *line_marker = '\0';
-                if (GetFileAttributesA(text) != INVALID_FILE_ATTRIBUTES && studio_open_script(text))
-                    editor_goto_line(studio.editor, source_line - 1);
+                if (GetFileAttributesA(text) != INVALID_FILE_ATTRIBUTES)
+                    studio_navigate_to(text, source_line);
             }
         }
     }
@@ -156,6 +156,7 @@ static LRESULT handle_command(HWND window, int command)
             studio_show_error(window, "Cannot save the current script.");
         } else {
             studio_refresh_navigation_symbols();
+            studio_refresh_editor_title();
         }
         break;
     case ID_FILE_SAVE_AS:
@@ -211,6 +212,12 @@ static LRESULT handle_command(HWND window, int command)
         break;
     case ID_EDIT_GO_TO_DEFINITION:
         studio_go_to_definition();
+        break;
+    case ID_EDIT_NAVIGATE_BACK:
+        studio_navigate_back();
+        break;
+    case ID_EDIT_NAVIGATE_FORWARD:
+        studio_navigate_forward();
         break;
     case ID_EDIT_AUTOCOMPLETE:
         studio_show_autocomplete(1);
@@ -340,8 +347,10 @@ static void open_selected_tree_item(void)
 
     if (!target || target->is_directory)
         return;
-    if (studio_open_script(target->path) && target->line > 0)
-        editor_goto_line(studio.editor, target->line - 1);
+    if (target->line > 0)
+        studio_navigate_to(target->path, target->line);
+    else
+        studio_open_script(target->path);
 }
 
 static void show_tree_context_menu(void)
@@ -398,6 +407,7 @@ static LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM wparam, LP
     switch (message) {
     case WM_CREATE:
         studio.window = window;
+        studio_reset_document_navigation();
         studio_create_child_controls(window);
         return 0;
     case WM_SIZE:
@@ -510,12 +520,19 @@ static LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM wparam, LP
         } else if (header->idFrom == ID_EDITOR && header->code == SCN_MODIFIED) {
             SCNotification *notification = (SCNotification *)lparam;
             editor_update_line_number_margin(studio.editor);
-            if (notification->modificationType & (SC_MOD_INSERTTEXT | SC_MOD_DELETETEXT))
+            if (notification->modificationType & (SC_MOD_INSERTTEXT | SC_MOD_DELETETEXT)) {
                 editor_apply_semantic_colors(studio.editor);
+                studio_refresh_editor_title();
+            }
+        } else if (header->idFrom == ID_EDITOR &&
+                   (header->code == SCN_SAVEPOINTLEFT || header->code == SCN_SAVEPOINTREACHED)) {
+            studio_refresh_editor_title();
         } else if (header->idFrom == ID_EDITOR && header->code == SCN_CHARADDED) {
             SCNotification *notification = (SCNotification *)lparam;
             if (notification->ch == '\n')
-                editor_complete_brace_block(studio.editor);
+                editor_handle_newline(studio.editor);
+            else if (notification->ch == '}')
+                editor_handle_closing_brace(studio.editor);
             else if (notification->ch == '.')
                 studio_show_autocomplete(1);
             else if (studio_is_completion_character(notification->ch))

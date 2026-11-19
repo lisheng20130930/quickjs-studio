@@ -47,7 +47,7 @@ int main(void)
     assert(symbol_find_definition("examples", "examples/game/update.js", "calculateDistance", path,
                                   sizeof(path), &line));
     assert(line == 1 && strstr(path, "distance.js"));
-    count = symbol_list_file_definitions("examples/api/engine.api.js", definitions, 32);
+    count = symbol_list_file_definitions("examples/.quickjs-studio/host-api.js", definitions, 32);
     definition = find_definition(definitions, count, "Engine");
     assert(definition && definition->kind == SYMBOL_CLASS);
     definition = find_definition(definitions, count, "log");
