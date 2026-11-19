@@ -3,6 +3,8 @@
 #include "Scintilla.h"
 #include "editor.h"
 
+#include <uxtheme.h>
+
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
@@ -79,6 +81,27 @@ static void set_control_font(HWND control, HFONT font)
         SendMessageA(control, WM_SETFONT, (WPARAM)font, TRUE);
 }
 
+static void use_classic_theme(HWND control)
+{
+    if (control)
+        SetWindowTheme(control, L"", L"");
+}
+
+static void keep_vertical_scrollbar(HWND control)
+{
+    SCROLLINFO info = {0};
+
+    if (!control)
+        return;
+    info.cbSize = sizeof(info);
+    info.fMask = SIF_ALL;
+    if (!GetScrollInfo(control, SB_VERT, &info))
+        return;
+    info.fMask = SIF_RANGE | SIF_PAGE | SIF_POS | SIF_DISABLENOSCROLL;
+    SetScrollInfo(control, SB_VERT, &info, TRUE);
+    ShowScrollBar(control, SB_VERT, TRUE);
+}
+
 void studio_apply_system_window_colors(void)
 {
     COLORREF background = GetSysColor(COLOR_WINDOW);
@@ -97,7 +120,6 @@ void studio_apply_system_window_colors(void)
     InvalidateRect(studio.output, NULL, TRUE);
     InvalidateRect(studio.callstack, NULL, TRUE);
     InvalidateRect(studio.locals, NULL, TRUE);
-    InvalidateRect(studio.watch_edit, NULL, TRUE);
     InvalidateRect(studio.watch_list, NULL, TRUE);
 }
 
@@ -120,6 +142,7 @@ void studio_output_append(const char *format, ...)
     length = GetWindowTextLengthA(studio.output);
     SendMessageA(studio.output, EM_SETSEL, length, length);
     SendMessageA(studio.output, EM_REPLACESEL, FALSE, (LPARAM)text);
+    keep_vertical_scrollbar(studio.output);
 }
 
 void studio_set_status(const char *text)
@@ -201,8 +224,6 @@ void studio_show_bottom_page(int page)
     ShowWindow(studio.output, visible && page == PAGE_OUTPUT ? SW_SHOW : SW_HIDE);
     ShowWindow(studio.callstack, visible && page == PAGE_CALLSTACK ? SW_SHOW : SW_HIDE);
     ShowWindow(studio.locals, visible && page == PAGE_LOCALS ? SW_SHOW : SW_HIDE);
-    ShowWindow(studio.watch_edit, visible && page == PAGE_WATCH ? SW_SHOW : SW_HIDE);
-    ShowWindow(studio.watch_add, visible && page == PAGE_WATCH ? SW_SHOW : SW_HIDE);
     ShowWindow(studio.watch_list, visible && page == PAGE_WATCH ? SW_SHOW : SW_HIDE);
 }
 
@@ -257,32 +278,59 @@ static int clamp_int(int value, int minimum, int maximum)
 void studio_layout_controls(HWND window)
 {
     LayoutMetrics metrics;
-    int tabs_height = 25;
     int wizard_x;
     int wizard_width;
     int context_width;
     int definition_width;
     int output_content_height;
+    int output_content_x;
     int output_content_y;
+    int output_content_width;
     int workspace_width;
     int vertical_splitter;
     int output_height;
     int horizontal_splitter;
+    int workspace_client_width;
     int navigation_visible = studio.wizardbar_visible && editor_path()[0];
     int workspace_top;
     int workspace_height;
+    int toolbar1_width;
+    int toolbar_height;
+    RECT last_toolbar_button;
+    RECT output_page;
     const int action_width = 38;
     const int gap = 3;
 
-    if (studio.toolbar_visible)
+    toolbar1_width = 430;
+    toolbar_height = 26;
+    if (studio.toolbar_visible) {
         SendMessageA(studio.toolbar, TB_AUTOSIZE, 0, 0);
+        if (SendMessageA(studio.toolbar, TB_GETITEMRECT,
+                         SendMessageA(studio.toolbar, TB_BUTTONCOUNT, 0, 0) - 1,
+                         (LPARAM)&last_toolbar_button)) {
+            toolbar1_width = last_toolbar_button.right + 4;
+            toolbar_height = last_toolbar_button.bottom + 4;
+        }
+        MoveWindow(studio.toolbar, 0, 0, toolbar1_width, toolbar_height, TRUE);
+        MoveWindow(studio.toolbar2, toolbar1_width, 0, 222, toolbar_height, TRUE);
+    }
     ShowWindow(studio.toolbar, studio.toolbar_visible ? SW_SHOW : SW_HIDE);
+    ShowWindow(studio.toolbar2, studio.toolbar_visible ? SW_SHOW : SW_HIDE);
     ShowWindow(studio.status, studio.status_visible ? SW_SHOW : SW_HIDE);
     if (studio.status_visible) {
         SendMessageA(studio.status, WM_SIZE, 0, 0);
         layout_status_bar();
     }
     metrics = get_layout_metrics(window);
+    if (studio.toolbar_visible) {
+        SetWindowPos(studio.global_find, HWND_TOP, 10, (toolbar_height - 22) / 2, 180, 22,
+                     SWP_SHOWWINDOW);
+        SetWindowPos(studio.global_find_button, HWND_TOP, 194, (toolbar_height - 22) / 2, 24, 22,
+                     SWP_SHOWWINDOW);
+    } else {
+        ShowWindow(studio.global_find, SW_HIDE);
+        ShowWindow(studio.global_find_button, SW_HIDE);
+    }
     workspace_top = metrics.navigation_y;
     workspace_height = metrics.top + metrics.height - workspace_top;
     studio.left_width = clamp_int(studio.left_width, MIN_TREE_WIDTH,
@@ -290,12 +338,12 @@ void studio_layout_controls(HWND window)
     studio.bottom_height = clamp_int(studio.bottom_height, MIN_BOTTOM_HEIGHT,
                                      metrics.height - MIN_EDITOR_HEIGHT - SPLITTER_SIZE);
     workspace_width = studio.workspace_visible ? studio.left_width : 0;
+    workspace_client_width =
+        workspace_width > DOCK_LEFT_MARGIN ? workspace_width - DOCK_LEFT_MARGIN : 0;
     vertical_splitter = studio.workspace_visible ? SPLITTER_SIZE : 0;
     output_height = studio.output_window_visible ? studio.bottom_height : 0;
-    output_content_height = output_height > tabs_height + 5 ? output_height - tabs_height - 5 : 0;
     horizontal_splitter = studio.output_window_visible ? SPLITTER_SIZE : 0;
     metrics.horizontal_y = metrics.top + metrics.height - output_height - horizontal_splitter;
-    output_content_y = metrics.horizontal_y + horizontal_splitter + 4;
 
     wizard_x = workspace_width + vertical_splitter;
     wizard_width = metrics.width - wizard_x;
@@ -313,17 +361,18 @@ void studio_layout_controls(HWND window)
     ShowWindow(studio.wizard_member, navigation_visible ? SW_SHOW : SW_HIDE);
     ShowWindow(studio.wizard_action, navigation_visible ? SW_SHOW : SW_HIDE);
 
-    MoveWindow(studio.workspace_caption, 1, workspace_top,
-               workspace_width > 15 ? workspace_width - 15 : 0, WORKSPACE_CAPTION_HEIGHT, TRUE);
+    MoveWindow(studio.workspace_caption, 0, 0, 0, 0, FALSE);
     MoveWindow(studio.workspace_close, workspace_width > 14 ? workspace_width - 14 : 0,
                workspace_top, 13, 13, TRUE);
-    MoveWindow(studio.tree, 0, workspace_top + WORKSPACE_CAPTION_HEIGHT, workspace_width,
+    MoveWindow(studio.tree, DOCK_LEFT_MARGIN, workspace_top + WORKSPACE_CAPTION_HEIGHT,
+               workspace_client_width,
                workspace_height - WORKSPACE_CAPTION_HEIGHT - LEFT_TABS_HEIGHT, TRUE);
-    MoveWindow(studio.left_tabs, 0, workspace_top + workspace_height - LEFT_TABS_HEIGHT,
-               workspace_width, LEFT_TABS_HEIGHT, TRUE);
+    MoveWindow(studio.left_tabs, DOCK_LEFT_MARGIN,
+               workspace_top + workspace_height - LEFT_TABS_HEIGHT, workspace_client_width,
+               LEFT_TABS_HEIGHT, TRUE);
     ShowWindow(studio.tree, studio.workspace_visible ? SW_SHOW : SW_HIDE);
     ShowWindow(studio.left_tabs, studio.workspace_visible ? SW_SHOW : SW_HIDE);
-    ShowWindow(studio.workspace_caption, studio.workspace_visible ? SW_SHOW : SW_HIDE);
+    ShowWindow(studio.workspace_caption, SW_HIDE);
     ShowWindow(studio.workspace_close, studio.workspace_visible ? SW_SHOW : SW_HIDE);
     MoveWindow(studio.editor, workspace_width + vertical_splitter, metrics.top,
                metrics.width - workspace_width - vertical_splitter,
@@ -334,21 +383,25 @@ void studio_layout_controls(HWND window)
     MoveWindow(studio.tabs, workspace_width + vertical_splitter,
                metrics.horizontal_y + horizontal_splitter,
                metrics.width - workspace_width - vertical_splitter, output_height, TRUE);
-    MoveWindow(studio.output, workspace_width + vertical_splitter + 5, output_content_y,
-               metrics.width - workspace_width - vertical_splitter - 10, output_content_height,
-               TRUE);
-    MoveWindow(studio.callstack, workspace_width + vertical_splitter + 5, output_content_y,
-               metrics.width - workspace_width - vertical_splitter - 10, output_content_height,
-               TRUE);
-    MoveWindow(studio.locals, workspace_width + vertical_splitter + 5, output_content_y,
-               metrics.width - workspace_width - vertical_splitter - 10, output_content_height,
-               TRUE);
-    MoveWindow(studio.watch_edit, workspace_width + vertical_splitter + 5, output_content_y,
-               metrics.width - workspace_width - vertical_splitter - 67, 23, TRUE);
-    MoveWindow(studio.watch_add, metrics.width - 58, output_content_y, 53, 23, TRUE);
-    MoveWindow(studio.watch_list, workspace_width + vertical_splitter + 5, output_content_y + 25,
-               metrics.width - workspace_width - vertical_splitter - 10,
-               output_height > tabs_height + 30 ? output_height - tabs_height - 30 : 0, TRUE);
+    if (output_height > 0) {
+        GetClientRect(studio.tabs, &output_page);
+        TabCtrl_AdjustRect(studio.tabs, FALSE, &output_page);
+    } else {
+        SetRectEmpty(&output_page);
+    }
+    output_content_x = output_page.left;
+    output_content_y = output_page.top;
+    output_content_width = output_page.right - output_page.left;
+    output_content_height = output_page.bottom - output_page.top;
+    MoveWindow(studio.output, output_content_x, output_content_y, output_content_width,
+               output_content_height, TRUE);
+    keep_vertical_scrollbar(studio.output);
+    MoveWindow(studio.callstack, output_content_x, output_content_y, output_content_width,
+               output_content_height, TRUE);
+    MoveWindow(studio.locals, output_content_x, output_content_y, output_content_width,
+               output_content_height, TRUE);
+    MoveWindow(studio.watch_list, output_content_x, output_content_y, output_content_width,
+               output_content_height, TRUE);
     studio_show_bottom_page(studio.bottom_page);
     InvalidateRect(window, NULL, TRUE);
 }
@@ -404,20 +457,38 @@ void studio_paint_splitters(HWND window)
     LayoutMetrics metrics = get_layout_metrics(window);
     RECT vertical;
     RECT horizontal;
+    RECT outer;
+    RECT grip;
+    RECT line;
     HDC dc = BeginPaint(window, &paint);
 
     metrics.horizontal_y = metrics.top + metrics.height - studio.bottom_height - SPLITTER_SIZE;
     if (studio.workspace_visible) {
+        SetRect(&outer, 0, metrics.navigation_y, DOCK_LEFT_MARGIN, metrics.top + metrics.height);
+        FillRect(dc, &outer, (HBRUSH)(COLOR_BTNFACE + 1));
+        SetRect(&grip, DOCK_LEFT_MARGIN + 6, metrics.navigation_y + 3, studio.left_width - 18,
+                metrics.navigation_y + 5);
+        FillRect(dc, &grip, (HBRUSH)(COLOR_BTNSHADOW + 1));
+        grip.top++;
+        FillRect(dc, &grip, (HBRUSH)(COLOR_BTNHIGHLIGHT + 1));
+        SetRect(&grip, DOCK_LEFT_MARGIN + 6, metrics.navigation_y + 8, studio.left_width - 18,
+                metrics.navigation_y + 10);
+        FillRect(dc, &grip, (HBRUSH)(COLOR_BTNSHADOW + 1));
+        grip.top++;
+        FillRect(dc, &grip, (HBRUSH)(COLOR_BTNHIGHLIGHT + 1));
         SetRect(&vertical, studio.left_width, metrics.navigation_y,
                 studio.left_width + SPLITTER_SIZE, metrics.top + metrics.height);
         FillRect(dc, &vertical, (HBRUSH)(COLOR_BTNFACE + 1));
-        DrawEdge(dc, &vertical, EDGE_ETCHED, BF_LEFT | BF_RIGHT);
     }
     if (studio.output_window_visible) {
         SetRect(&horizontal, studio.workspace_visible ? studio.left_width + SPLITTER_SIZE : 0,
                 metrics.horizontal_y, metrics.width, metrics.horizontal_y + SPLITTER_SIZE);
         FillRect(dc, &horizontal, (HBRUSH)(COLOR_BTNFACE + 1));
-        DrawEdge(dc, &horizontal, EDGE_ETCHED, BF_TOP | BF_BOTTOM);
+        SetRect(&line, horizontal.left, horizontal.bottom - 2, horizontal.right,
+                horizontal.bottom - 1);
+        FillRect(dc, &line, (HBRUSH)(COLOR_BTNSHADOW + 1));
+        SetRect(&line, horizontal.left, horizontal.bottom - 1, horizontal.right, horizontal.bottom);
+        FillRect(dc, &line, (HBRUSH)(COLOR_BTNHIGHLIGHT + 1));
     }
     EndPaint(window, &paint);
 }
@@ -755,12 +826,21 @@ static HIMAGELIST create_tree_images(HWND parent)
     return images;
 }
 
+static void create_toolbar_grip(HWND toolbar)
+{
+    CreateWindowExA(0, "STATIC", "", WS_CHILD | WS_VISIBLE | SS_ETCHEDVERT, 2, 3, 2, 18, toolbar,
+                    NULL, GetModuleHandleA(NULL), NULL);
+    CreateWindowExA(0, "STATIC", "", WS_CHILD | WS_VISIBLE | SS_ETCHEDVERT, 5, 3, 2, 18, toolbar,
+                    NULL, GetModuleHandleA(NULL), NULL);
+}
+
 HWND studio_create_toolbar(HWND parent)
 {
     static const char labels[] =
         "New Script\0Open Project\0Open Script\0Save\0Cut\0Copy\0Paste\0Start / Continue\0Stop\0Toggle Breakpoint\0Step Over\0Step Into\0Step Out\0Undo\0Redo\0Find\0";
     const BYTE icon_button = BTNS_BUTTON;
-    TBBUTTON buttons[] = {{11, ID_FILE_NEW_SCRIPT, TBSTATE_ENABLED, icon_button, {0}, 0, 0},
+    TBBUTTON buttons[] = {{9, 0, TBSTATE_ENABLED, BTNS_SEP, {0}, 0, 0},
+                          {11, ID_FILE_NEW_SCRIPT, TBSTATE_ENABLED, icon_button, {0}, 0, 0},
                           {0, ID_FILE_OPEN_PROJECT, TBSTATE_ENABLED, icon_button, {0}, 0, 1},
                           {0, ID_FILE_OPEN_SCRIPT, TBSTATE_ENABLED, icon_button, {0}, 0, 2},
                           {1, ID_FILE_SAVE, TBSTATE_ENABLED, icon_button, {0}, 0, 3},
@@ -779,10 +859,11 @@ HWND studio_create_toolbar(HWND parent)
                           {5, ID_DEBUG_STEP_OVER, TBSTATE_ENABLED, icon_button, {0}, 0, 10},
                           {6, ID_DEBUG_STEP_INTO, TBSTATE_ENABLED, icon_button, {0}, 0, 11},
                           {7, ID_DEBUG_STEP_OUT, TBSTATE_ENABLED, icon_button, {0}, 0, 12}};
-    HWND toolbar =
-        CreateWindowExA(0, TOOLBARCLASSNAMEA, NULL,
-                        WS_CHILD | WS_VISIBLE | TBSTYLE_FLAT | TBSTYLE_TOOLTIPS | CCS_TOP, 0, 0, 0,
-                        0, parent, (HMENU)(INT_PTR)ID_TOOLBAR, GetModuleHandleA(NULL), NULL);
+    HWND toolbar = CreateWindowExA(0, TOOLBARCLASSNAMEA, NULL,
+                                   WS_CHILD | WS_VISIBLE | TBSTYLE_FLAT | TBSTYLE_TOOLTIPS |
+                                       CCS_NODIVIDER | CCS_NOPARENTALIGN | CCS_NORESIZE,
+                                   0, 0, 0, 0, parent, (HMENU)(INT_PTR)ID_TOOLBAR,
+                                   GetModuleHandleA(NULL), NULL);
     HDC screen = GetDC(parent);
     studio.toolbar_images = ImageList_Create(16, 16, ILC_COLOR24 | ILC_MASK, 15, 0);
     for (int icon = 0; icon < 15; icon++)
@@ -794,6 +875,7 @@ HWND studio_create_toolbar(HWND parent)
     SendMessageA(toolbar, TB_ADDBUTTONS, ARRAYSIZE(buttons), (LPARAM)buttons);
     SendMessageA(toolbar, TB_SETBUTTONWIDTH, 0, MAKELONG(24, 24));
     SendMessageA(toolbar, TB_SETBUTTONSIZE, 0, MAKELONG(24, 22));
+    create_toolbar_grip(toolbar);
     return toolbar;
 }
 
@@ -831,6 +913,24 @@ void studio_create_child_controls(HWND window)
     DWORD list_style = WS_CHILD | LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS;
 
     studio.toolbar = studio_create_toolbar(window);
+    studio.toolbar2 = CreateWindowExA(
+        0, TOOLBARCLASSNAMEA, NULL,
+        WS_CHILD | WS_VISIBLE | TBSTYLE_FLAT | CCS_NODIVIDER | CCS_NOPARENTALIGN | CCS_NORESIZE, 0,
+        0, 222, 26, window, (HMENU)(INT_PTR)ID_TOOLBAR2, GetModuleHandleA(NULL), NULL);
+    SendMessageA(studio.toolbar2, TB_BUTTONSTRUCTSIZE, sizeof(TBBUTTON), 0);
+    create_toolbar_grip(studio.toolbar2);
+    studio.old_toolbar2_proc =
+        (WNDPROC)SetWindowLongPtrA(studio.toolbar2, GWLP_WNDPROC, (LONG_PTR)studio_toolbar2_proc);
+    studio.global_find = CreateWindowExA(
+        WS_EX_CLIENTEDGE, "EDIT", "", WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL, 0, 0,
+        180, 22, studio.toolbar2, (HMENU)(INT_PTR)ID_GLOBAL_FIND_EDIT, GetModuleHandleA(NULL),
+        NULL);
+    studio.global_find_button = CreateWindowExA(
+        0, "BUTTON", "", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON | BS_ICON, 0, 0, 24, 22,
+        studio.toolbar2, (HMENU)(INT_PTR)ID_GLOBAL_FIND_BUTTON, GetModuleHandleA(NULL), NULL);
+    studio.global_find_icon = ImageList_GetIcon(studio.toolbar_images, 14, ILD_NORMAL);
+    SendMessageA(studio.global_find_button, BM_SETIMAGE, IMAGE_ICON,
+                 (LPARAM)studio.global_find_icon);
     studio.wizard_scope = CreateWindowExA(WS_EX_CLIENTEDGE, "COMBOBOX", "",
                                           WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_VSCROLL |
                                               CBS_DROPDOWN | CBS_AUTOHSCROLL | CBS_HASSTRINGS,
@@ -846,15 +946,17 @@ void studio_create_child_controls(HWND window)
     studio.workspace_caption =
         CreateWindowExA(0, "STATIC", "", WS_CHILD | WS_VISIBLE | SS_LEFT | SS_CENTERIMAGE, 0, 0,
                         100, 20, window, NULL, GetModuleHandleA(NULL), NULL);
-    studio.workspace_close = CreateWindowExA(
-        0, "BUTTON", "x", WS_CHILD | WS_VISIBLE | BS_FLAT | BS_PUSHBUTTON, 0, 0, 18, 18, window,
-        (HMENU)(INT_PTR)ID_WORKSPACE_CLOSE, GetModuleHandleA(NULL), NULL);
+    studio.workspace_close =
+        CreateWindowExA(0, "BUTTON", "x", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 0, 0, 18, 18,
+                        window, (HMENU)(INT_PTR)ID_WORKSPACE_CLOSE, GetModuleHandleA(NULL), NULL);
     studio.tree =
         CreateWindowExA(WS_EX_CLIENTEDGE, WC_TREEVIEWA, "",
                         WS_CHILD | WS_VISIBLE | TVS_HASBUTTONS | TVS_HASLINES | TVS_LINESATROOT, 0,
                         0, 100, 100, window, (HMENU)(INT_PTR)ID_TREE, GetModuleHandleA(NULL), NULL);
     studio.tree_images = create_tree_images(window);
     TreeView_SetImageList(studio.tree, studio.tree_images, TVSIL_NORMAL);
+    TreeView_SetIndent(studio.tree, 16);
+    TreeView_SetItemHeight(studio.tree, 16);
     studio.left_tabs =
         CreateWindowExA(0, WC_TABCONTROLA, "", WS_CHILD | WS_VISIBLE | TCS_BOTTOM, 0, 0, 100, 24,
                         window, (HMENU)(INT_PTR)ID_LEFT_TABS, GetModuleHandleA(NULL), NULL);
@@ -866,15 +968,17 @@ void studio_create_child_controls(HWND window)
     tab.pszText = "FileView";
     tab.iImage = TREE_IMAGE_FILE;
     TabCtrl_InsertItem(studio.left_tabs, PAGE_FILE_VIEW, &tab);
-    studio.document_background =
-        CreateWindowExA(0, "STATIC", "", WS_CHILD | WS_VISIBLE, 0, 0, 100, 100, window,
-                        (HMENU)(INT_PTR)ID_DOCUMENT_BACKGROUND, GetModuleHandleA(NULL), NULL);
+    studio.document_background = CreateWindowExA(
+        WS_EX_CLIENTEDGE, "STATIC", "", WS_CHILD | WS_VISIBLE, 0, 0, 100, 100, window,
+        (HMENU)(INT_PTR)ID_DOCUMENT_BACKGROUND, GetModuleHandleA(NULL), NULL);
     studio.editor = editor_create(window, ID_EDITOR);
     studio.old_editor_proc =
         (WNDPROC)SetWindowLongPtrA(studio.editor, GWLP_WNDPROC, (LONG_PTR)studio_editor_proc);
-    studio.tabs =
-        CreateWindowExA(0, WC_TABCONTROLA, "", WS_CHILD | WS_VISIBLE | TCS_BOTTOM, 0, 0, 100, 100,
-                        window, (HMENU)(INT_PTR)ID_BOTTOM_TABS, GetModuleHandleA(NULL), NULL);
+    studio.tabs = CreateWindowExA(
+        WS_EX_CLIENTEDGE, WC_TABCONTROLA, "", WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN | TCS_BOTTOM,
+        0, 0, 100, 100, window, (HMENU)(INT_PTR)ID_BOTTOM_TABS, GetModuleHandleA(NULL), NULL);
+    studio.old_tabs_proc =
+        (WNDPROC)SetWindowLongPtrA(studio.tabs, GWLP_WNDPROC, (LONG_PTR)studio_tabs_proc);
     tab.mask = TCIF_TEXT;
     tab.pszText = "Output";
     TabCtrl_InsertItem(studio.tabs, PAGE_OUTPUT, &tab);
@@ -884,26 +988,20 @@ void studio_create_child_controls(HWND window)
     TabCtrl_InsertItem(studio.tabs, PAGE_LOCALS, &tab);
     tab.pszText = "Watch";
     TabCtrl_InsertItem(studio.tabs, PAGE_WATCH, &tab);
-    studio.output = CreateWindowExA(
-        WS_EX_CLIENTEDGE, "EDIT", "QuickJS Studio ready.\r\n",
-        WS_CHILD | WS_VISIBLE | WS_VSCROLL | ES_MULTILINE | ES_AUTOVSCROLL | ES_READONLY, 0, 0, 100,
-        100, window, (HMENU)(INT_PTR)ID_OUTPUT, GetModuleHandleA(NULL), NULL);
+    studio.output = CreateWindowExA(0, "EDIT", "QuickJS Studio ready.\r\n",
+                                    WS_CHILD | WS_VISIBLE | WS_VSCROLL | ES_MULTILINE |
+                                        ES_AUTOVSCROLL | ES_READONLY | ES_NOHIDESEL,
+                                    0, 0, 100, 100, studio.tabs, (HMENU)(INT_PTR)ID_OUTPUT,
+                                    GetModuleHandleA(NULL), NULL);
     studio.old_output_proc =
         (WNDPROC)SetWindowLongPtrA(studio.output, GWLP_WNDPROC, (LONG_PTR)studio_output_proc);
-    studio.callstack =
-        CreateWindowExA(WS_EX_CLIENTEDGE, WC_LISTVIEWA, "", list_style, 0, 0, 100, 100, window,
-                        (HMENU)(INT_PTR)ID_CALLSTACK, GetModuleHandleA(NULL), NULL);
-    studio.locals =
-        CreateWindowExA(WS_EX_CLIENTEDGE, WC_LISTVIEWA, "", list_style, 0, 0, 100, 100, window,
-                        (HMENU)(INT_PTR)ID_LOCALS, GetModuleHandleA(NULL), NULL);
-    studio.watch_edit = CreateWindowExA(
-        WS_EX_CLIENTEDGE, "EDIT", "", WS_CHILD | WS_TABSTOP | ES_AUTOHSCROLL, 0, 0, 100, 23, window,
-        (HMENU)(INT_PTR)ID_WATCH_EDIT, GetModuleHandleA(NULL), NULL);
-    studio.watch_add =
-        CreateWindowExA(0, "BUTTON", "Add", WS_CHILD | WS_TABSTOP | BS_PUSHBUTTON, 0, 0, 53, 23,
-                        window, (HMENU)(INT_PTR)ID_WATCH_ADD, GetModuleHandleA(NULL), NULL);
+    keep_vertical_scrollbar(studio.output);
+    studio.callstack = CreateWindowExA(0, WC_LISTVIEWA, "", list_style, 0, 0, 100, 100, studio.tabs,
+                                       (HMENU)(INT_PTR)ID_CALLSTACK, GetModuleHandleA(NULL), NULL);
+    studio.locals = CreateWindowExA(0, WC_LISTVIEWA, "", list_style, 0, 0, 100, 100, studio.tabs,
+                                    (HMENU)(INT_PTR)ID_LOCALS, GetModuleHandleA(NULL), NULL);
     studio.watch_list =
-        CreateWindowExA(WS_EX_CLIENTEDGE, WC_LISTVIEWA, "", list_style, 0, 0, 100, 100, window,
+        CreateWindowExA(0, WC_LISTVIEWA, "", list_style, 0, 0, 100, 100, studio.tabs,
                         (HMENU)(INT_PTR)ID_WATCH_LIST, GetModuleHandleA(NULL), NULL);
     studio.status =
         CreateWindowExA(0, STATUSCLASSNAMEA, "Ready", WS_CHILD | WS_VISIBLE | SBARS_SIZEGRIP, 0, 0,
@@ -911,6 +1009,8 @@ void studio_create_child_controls(HWND window)
 
     studio.classic_font = create_fixedsys_font();
     set_control_font(studio.wizard_scope, studio.classic_font);
+    set_control_font(studio.global_find, studio.classic_font);
+    set_control_font(studio.global_find_button, studio.classic_font);
     set_control_font(studio.wizard_member, studio.classic_font);
     set_control_font(studio.wizard_action, studio.classic_font);
     set_control_font(studio.workspace_caption, studio.classic_font);
@@ -920,11 +1020,24 @@ void studio_create_child_controls(HWND window)
     set_control_font(studio.tabs, studio.classic_font);
     set_control_font(studio.callstack, studio.classic_font);
     set_control_font(studio.locals, studio.classic_font);
-    set_control_font(studio.watch_edit, studio.classic_font);
-    set_control_font(studio.watch_add, studio.classic_font);
     set_control_font(studio.watch_list, studio.classic_font);
     set_control_font(studio.status, studio.classic_font);
     set_control_font(studio.output, studio.classic_font);
+    {
+        HWND classic_controls[] = {
+            studio.toolbar,       studio.toolbar2,
+            studio.global_find,   studio.global_find_button,
+            studio.wizard_scope,  studio.wizard_member,
+            studio.wizard_action, studio.workspace_close,
+            studio.tree,          studio.left_tabs,
+            studio.editor,        studio.tabs,
+            studio.output,        studio.callstack,
+            studio.locals,        studio.watch_list,
+            studio.status,
+        };
+        for (int index = 0; index < (int)ARRAYSIZE(classic_controls); index++)
+            use_classic_theme(classic_controls[index]);
+    }
     studio_apply_system_window_colors();
 
     ListView_SetExtendedListViewStyle(studio.callstack, LVS_EX_FULLROWSELECT | LVS_EX_GRIDLINES);
@@ -939,9 +1052,9 @@ void studio_create_child_controls(HWND window)
     list_add_column(studio.watch_list, 0, 180, "Expression");
     list_add_column(studio.watch_list, 1, 360, "Value");
     list_add_column(studio.watch_list, 2, 90, "Type");
-    studio.old_watch_edit_proc = (WNDPROC)SetWindowLongPtrA(studio.watch_edit, GWLP_WNDPROC,
-                                                            (LONG_PTR)studio_watch_edit_proc);
-    SendMessageW(studio.watch_edit, EM_SETCUEBANNER, TRUE, (LPARAM)L"Expression");
+    studio.old_global_find_proc = (WNDPROC)SetWindowLongPtrA(studio.global_find, GWLP_WNDPROC,
+                                                             (LONG_PTR)studio_global_find_proc);
+    SendMessageW(studio.global_find, EM_SETCUEBANNER, TRUE, (LPARAM)L"Find in project");
     studio_show_bottom_page(PAGE_OUTPUT);
 }
 

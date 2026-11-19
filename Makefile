@@ -61,9 +61,9 @@ $(WINDOWS_QJS_LIB): $(QJS_SOURCES)
 	MINGW_CC=$(MINGW_CC) MINGW_AR=$(MINGW_AR) \
 		python3 $(QJS_DIR)/build_quickjs.py
 
-third_party/scintilla/bin/Scintilla.dll:
+third_party/scintilla/bin/Scintilla.dll: third_party/scintilla/win32/ScintillaWin.cxx
 	$(MAKE) -C third_party/scintilla/win32 windir=Windows \
-		CXX=$(MINGW_CXX) WINDRES=x86_64-w64-mingw32-windres
+		CXX=$(MINGW_CXX) WINDRES=x86_64-w64-mingw32-windres PYTHON=python3
 
 third_party/lexilla/bin/lexilla.dll:
 	$(MAKE) -C third_party/lexilla/src windir=Windows \
@@ -74,7 +74,7 @@ $(WINDOWS_DIR)/quickjs-studio.exe: $(WINDOWS_STUDIO_SOURCES) \
 	$(WINDOWS_STUDIO_HEADERS) | $(WINDOWS_DIR)
 	$(MINGW_CC) $(WINDOWS_CFLAGS) $(WINDOWS_INCLUDES) \
 		$(WINDOWS_STUDIO_SOURCES) -mwindows -lcomctl32 -lcomdlg32 \
-		-lshell32 -lole32 -lgdi32 -luser32 -o $@
+		-lshell32 -lole32 -luxtheme -lgdi32 -luser32 -o $@
 
 $(WINDOWS_DIR)/qjs-host.exe: $(HOST_SOURCES) agent/qjs_debug_agent.h \
 	$(WINDOWS_QJS_LIB) | $(WINDOWS_DIR)

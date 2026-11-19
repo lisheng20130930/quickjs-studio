@@ -46,7 +46,7 @@ try {
         "src/project.c", "src/symbol_search.c", "src/debug_session.c",
         "src/input_dialog.c", "src/project_settings.c",
         "third_party/cjson/cJSON.c", "-mwindows", "-lcomctl32", "-lcomdlg32",
-        "-lshell32", "-lole32", "-lgdi32", "-luser32",
+        "-lshell32", "-lole32", "-luxtheme", "-lgdi32", "-luser32",
         "-o", "build/windows/bin/quickjs-studio.exe"
     )
     & $Gcc @StudioArgs

@@ -64,6 +64,7 @@ enum {
     ID_PROJECT_REMOVE,
     ID_PROJECT_REFRESH,
     ID_PROJECT_PROPERTIES,
+    ID_PROJECT_OPEN_ITEM,
     ID_TOOLS_ADD_WATCH,
     ID_HELP_ABOUT,
     ID_DOCUMENT_CLOSE,
@@ -74,16 +75,17 @@ enum {
     ID_OUTPUT,
     ID_CALLSTACK,
     ID_LOCALS,
-    ID_WATCH_EDIT,
-    ID_WATCH_ADD,
     ID_WATCH_LIST,
     ID_TOOLBAR,
+    ID_TOOLBAR2,
     ID_WIZARD_SCOPE,
     ID_WIZARD_MEMBER,
     ID_WIZARD_ACTION,
     ID_WORKSPACE_CLOSE,
     ID_LEFT_TABS,
-    ID_STATUS
+    ID_STATUS,
+    ID_GLOBAL_FIND_EDIT,
+    ID_GLOBAL_FIND_BUTTON
 };
 
 enum { PAGE_OUTPUT, PAGE_CALLSTACK, PAGE_LOCALS, PAGE_WATCH };
@@ -98,14 +100,24 @@ enum {
     TREE_IMAGE_VARIABLE
 };
 
-#define SPLITTER_SIZE 4
+typedef enum TreeTargetKind {
+    TREE_TARGET_WORKSPACE,
+    TREE_TARGET_PROJECT,
+    TREE_TARGET_GROUP,
+    TREE_TARGET_DIRECTORY,
+    TREE_TARGET_FILE,
+    TREE_TARGET_SYMBOL
+} TreeTargetKind;
+
+#define DOCK_LEFT_MARGIN 7
+#define SPLITTER_SIZE 5
 #define MIN_TREE_WIDTH 100
 #define MIN_EDITOR_WIDTH 280
 #define MIN_EDITOR_HEIGHT 120
 #define MIN_BOTTOM_HEIGHT 90
 #define NAVIGATION_HEIGHT 26
 #define WORKSPACE_CAPTION_HEIGHT 14
-#define LEFT_TABS_HEIGHT 24
+#define LEFT_TABS_HEIGHT 22
 #define STUDIO_MAX_DOCUMENT_STATES 256
 #define STUDIO_MAX_NAVIGATION_HISTORY 256
 
@@ -114,6 +126,7 @@ typedef struct TreeTarget {
     int line;
     int is_directory;
     int is_physical;
+    TreeTargetKind kind;
 } TreeTarget;
 
 typedef struct WizardSymbol {
@@ -129,6 +142,9 @@ typedef struct StudioSourceLocation {
 typedef struct StudioWindow {
     HWND window;
     HWND toolbar;
+    HWND toolbar2;
+    HWND global_find;
+    HWND global_find_button;
     HWND wizard_scope;
     HWND wizard_member;
     HWND wizard_action;
@@ -142,16 +158,17 @@ typedef struct StudioWindow {
     HWND output;
     HWND callstack;
     HWND locals;
-    HWND watch_edit;
-    HWND watch_add;
     HWND watch_list;
     HWND status;
     HMENU view_menu;
     HIMAGELIST toolbar_images;
     HIMAGELIST tree_images;
+    HICON global_find_icon;
     HFONT classic_font;
     WNDPROC old_editor_proc;
-    WNDPROC old_watch_edit_proc;
+    WNDPROC old_toolbar2_proc;
+    WNDPROC old_global_find_proc;
+    WNDPROC old_tabs_proc;
     WNDPROC old_output_proc;
     char log_path[MAX_PATH];
     char find_text[256];
@@ -197,8 +214,10 @@ typedef struct StudioWindow {
 
 extern StudioWindow studio;
 
-LRESULT CALLBACK studio_watch_edit_proc(HWND window, UINT message, WPARAM wparam, LPARAM lparam);
 LRESULT CALLBACK studio_editor_proc(HWND window, UINT message, WPARAM wparam, LPARAM lparam);
+LRESULT CALLBACK studio_toolbar2_proc(HWND window, UINT message, WPARAM wparam, LPARAM lparam);
+LRESULT CALLBACK studio_global_find_proc(HWND window, UINT message, WPARAM wparam, LPARAM lparam);
+LRESULT CALLBACK studio_tabs_proc(HWND window, UINT message, WPARAM wparam, LPARAM lparam);
 LRESULT CALLBACK studio_output_proc(HWND window, UINT message, WPARAM wparam, LPARAM lparam);
 
 /* Shell/UI services shared by the controller modules. */
@@ -261,6 +280,7 @@ int studio_find_next_text(void);
 void studio_find_text_dialog(void);
 void studio_replace_text_dialog(void);
 void studio_find_in_files_dialog(void);
+void studio_run_global_find(void);
 void studio_go_to_line_dialog(void);
 void studio_insert_file_as_text(void);
 void studio_open_project_dialog(void);
@@ -274,7 +294,6 @@ void studio_stop_debugging(void);
 void studio_step_command(const char *command);
 void studio_evaluate_watches(void);
 int studio_add_watch(const char *text);
-void studio_add_watch_expression(void);
 void studio_add_editor_selection_to_watch(void);
 void studio_delete_selected_watch(void);
 void studio_process_debug_message(char *text);

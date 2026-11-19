@@ -319,23 +319,7 @@ void editor_set_view_state(HWND editor, const EditorViewState *state)
 
 void editor_update_line_number_margin(HWND editor)
 {
-    int line_count = (int)sci(editor, SCI_GETLINECOUNT, 0, 0);
-    int digits = 1;
-    char sample[16];
-    int width;
-
-    while (line_count >= 10) {
-        line_count /= 10;
-        digits++;
-    }
-    if (digits < 3)
-        digits = 3;
-    if (digits > (int)sizeof(sample) - 1)
-        digits = (int)sizeof(sample) - 1;
-    memset(sample, '9', (size_t)digits);
-    sample[digits] = '\0';
-    width = (int)sci(editor, SCI_TEXTWIDTH, STYLE_LINENUMBER, (LPARAM)sample) + 6;
-    sci(editor, SCI_SETMARGINWIDTHN, 0, width);
+    sci(editor, SCI_SETMARGINWIDTHN, 0, 0);
 }
 
 int editor_load_components(void)
@@ -457,14 +441,18 @@ static void configure_styles(HWND editor)
     sci(editor, SCI_SETINDENT, 4, 0);
     sci(editor, SCI_SETTABINDENTS, TRUE, 0);
     sci(editor, SCI_SETBACKSPACEUNINDENTS, TRUE, 0);
+    sci(editor, SCI_SETVSCROLLBAR, TRUE, 0);
+    sci(editor, SCI_SETHSCROLLBAR, TRUE, 0);
+    sci(editor, SCI_SETSCROLLWIDTH, 1, 0);
+    sci(editor, SCI_SETSCROLLWIDTHTRACKING, TRUE, 0);
     editor_update_line_number_margin(editor);
 }
 
 HWND editor_create(HWND parent, int control_id)
 {
-    HWND editor =
-        CreateWindowExA(WS_EX_CLIENTEDGE, "Scintilla", "", WS_CHILD | WS_TABSTOP, 0, 0, 100, 100,
-                        parent, (HMENU)(INT_PTR)control_id, GetModuleHandle(NULL), NULL);
+    HWND editor = CreateWindowExA(WS_EX_CLIENTEDGE, "Scintilla", "",
+                                  WS_CHILD | WS_TABSTOP | WS_VSCROLL | WS_HSCROLL, 0, 0, 100, 100,
+                                  parent, (HMENU)(INT_PTR)control_id, GetModuleHandle(NULL), NULL);
     if (editor)
         configure_styles(editor);
     return editor;
@@ -494,6 +482,7 @@ int editor_open(HWND editor, const char *path)
     }
     fclose(file);
     data[length] = '\0';
+    sci(editor, SCI_SETSCROLLWIDTH, 1, 0);
     sci(editor, SCI_SETTEXT, 0, (LPARAM)data);
     editor_update_line_number_margin(editor);
     sci(editor, SCI_EMPTYUNDOBUFFER, 0, 0);

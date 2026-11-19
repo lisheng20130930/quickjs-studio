@@ -7,6 +7,7 @@ QuickJS Studio 是一个面向嵌入式 QuickJS 程序的轻量 Windows JavaScri
 - `.qsp` 工程、脚本目录树和 JavaScript 语法高亮；可新建/打开/关闭工程；
 - FileView 支持新建脚本、新建目录、加入已有文件、重命名、刷新和从工程排除；
 - 查找、继续查找、工程内查找、替换、跳行、书签和插入文件文本；
+- 顶部工具栏提供工程全局查找框；输入关键字后按 Enter 或点击 `Find`，结果直接输出到 Output 并支持双击跳转；
 - F9 源码断点；
 - F5 启动或继续，Shift+F5 停止；
 - F10 单步跳过，F11 单步进入，Shift+F11 单步跳出；
@@ -146,7 +147,8 @@ MFC、资源编辑器、C/C++ 编译参数和 SourceSafe 等与 QuickJS 调试�
 - FileView 文件或目录可通过右键或 F2 重命名；
 - FileView 的 `Remove From Project` 或 Delete 只从工程隐藏，绝不会删除磁盘内容；排除项保存在 `.qsp` 的 `[Excluded]` 节中；再次通过 `Add Files to Folder...` 加入同一路径即可恢复；
 - `Project > Settings...`（Alt+F7）可修改调试 EXE、参数、工作目录、脚本根目录和入口脚本；
-- `Edit > Find in Files...` 在当前工程所有未排除的 JavaScript 文件中搜索，并把 `文件(行号): 内容` 输出到底部 Output 窗口；双击结果可直接跳到源码行。
+- 工具栏全局查找、`Edit > Find in Files...` 和 `Ctrl+Shift+F` 使用同一个工程搜索框；搜索当前工程所有未排除的 JavaScript 文件，并把 `文件(行号): 内容` 输出到底部 Output 窗口；双击结果可直接跳到源码行。
+- FileView 的右键菜单按节点职责区分：项目节点提供工程设置和全局操作，文件夹提供新建/加入文件操作，普通文件只提供打开、重命名和从工程移除。
 
 ## 运行示例
 
@@ -168,7 +170,7 @@ IDE 会打开 `examples/quickjs-studio.qsp`。也可以显式传入工程文件�
 
 - Call Stack 显示 `update()`；
 - Locals 显示 `deltaTime`、`speed` 等局部变量；
-- 在编辑器中选中 `speed * deltaTime`，右键选择 `Add to Watch`，即可添加常驻表达式；也可在 Watch 输入框手工添加。每次暂停都会自动刷新，选中后按 Delete 可删除；
+- 在编辑器中选中 `speed * deltaTime`，右键选择 `Add to Watch`，即可添加常驻表达式。每次暂停都会自动刷新，选中后按 Delete 可删除；
 - F10、F11、Shift+F11 和 F5 分别执行单步和继续。
 
 ## 工程文件

@@ -684,14 +684,16 @@ void studio_show_autocomplete(int forced)
     free(words);
 }
 
-static TreeTarget *copy_tree_target(const char *path, int line, int is_directory, int is_physical)
+static TreeTarget *copy_tree_target(const char *path, int line, TreeTargetKind kind)
 {
     TreeTarget *target = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(*target));
     if (target) {
         snprintf(target->path, sizeof(target->path), "%s", path);
         target->line = line;
-        target->is_directory = is_directory;
-        target->is_physical = is_physical;
+        target->kind = kind;
+        target->is_directory = kind == TREE_TARGET_WORKSPACE || kind == TREE_TARGET_PROJECT ||
+                               kind == TREE_TARGET_GROUP || kind == TREE_TARGET_DIRECTORY;
+        target->is_physical = kind == TREE_TARGET_DIRECTORY || kind == TREE_TARGET_FILE;
     }
     return target;
 }
@@ -755,7 +757,7 @@ static void populate_directory(HTREEITEM parent, const char *directory)
             insert.item.iSelectedImage = insert.item.iImage;
             if (is_directory) {
                 insert.item.mask |= TVIF_PARAM;
-                insert.item.lParam = (LPARAM)copy_tree_target(path, 0, 1, 1);
+                insert.item.lParam = (LPARAM)copy_tree_target(path, 0, TREE_TARGET_DIRECTORY);
                 HTREEITEM branch = TreeView_InsertItem(studio.tree, &insert);
                 populate_directory(branch, path);
                 if (directory_contains_host_api(path) && !TreeView_GetChild(studio.tree, branch))
@@ -765,7 +767,7 @@ static void populate_directory(HTREEITEM parent, const char *directory)
             if (!is_javascript_file(data.cFileName))
                 continue;
             insert.item.mask |= TVIF_PARAM;
-            insert.item.lParam = (LPARAM)copy_tree_target(path, 0, 0, 1);
+            insert.item.lParam = (LPARAM)copy_tree_target(path, 0, TREE_TARGET_FILE);
             TreeView_InsertItem(studio.tree, &insert);
         } while (FindNextFileA(find, &data));
         FindClose(find);
@@ -787,7 +789,8 @@ void studio_populate_project_tree(void)
     insert.item.mask = TVIF_TEXT | TVIF_IMAGE | TVIF_SELECTEDIMAGE | TVIF_PARAM;
     insert.item.iImage = TREE_IMAGE_WORKSPACE;
     insert.item.iSelectedImage = TREE_IMAGE_WORKSPACE;
-    insert.item.lParam = (LPARAM)copy_tree_target(studio.project.script_root, 0, 1, 0);
+    insert.item.lParam =
+        (LPARAM)copy_tree_target(studio.project.script_root, 0, TREE_TARGET_WORKSPACE);
     snprintf(workspace_title, sizeof(workspace_title), "Workspace '%s': 1 project(s)",
              studio.project.name);
     insert.item.pszText = workspace_title;
@@ -797,13 +800,14 @@ void studio_populate_project_tree(void)
     insert.item.pszText = project_title;
     insert.item.iImage = TREE_IMAGE_WORKSPACE;
     insert.item.iSelectedImage = TREE_IMAGE_WORKSPACE;
-    insert.item.lParam = (LPARAM)copy_tree_target(studio.project.script_root, 0, 1, 0);
+    insert.item.lParam =
+        (LPARAM)copy_tree_target(studio.project.script_root, 0, TREE_TARGET_PROJECT);
     project = TreeView_InsertItem(studio.tree, &insert);
     insert.hParent = project;
     insert.item.pszText = "Source Files";
     insert.item.iImage = TREE_IMAGE_FOLDER;
     insert.item.iSelectedImage = TREE_IMAGE_FOLDER;
-    insert.item.lParam = (LPARAM)copy_tree_target(studio.project.script_root, 0, 1, 0);
+    insert.item.lParam = (LPARAM)copy_tree_target(studio.project.script_root, 0, TREE_TARGET_GROUP);
     source = TreeView_InsertItem(studio.tree, &insert);
     populate_directory(source, studio.project.script_root);
     TreeView_Expand(studio.tree, root, TVE_EXPAND);
@@ -829,6 +833,9 @@ void studio_populate_class_tree(void)
     root = TreeView_InsertItem(studio.tree, &insert);
     for (int file_index = 0; file_index < studio.navigation_file_count; file_index++) {
         SymbolDefinition definitions[256];
+
+        if (is_host_api_path(studio.navigation_files[file_index].path))
+            continue;
         int count = symbol_list_file_definitions(studio.navigation_files[file_index].path,
                                                  definitions, (int)ARRAYSIZE(definitions));
         for (int class_index = 0; class_index < count; class_index++) {
@@ -840,8 +847,9 @@ void studio_populate_class_tree(void)
             insert.item.pszText = definitions[class_index].name;
             insert.item.iImage = TREE_IMAGE_CLASS;
             insert.item.iSelectedImage = TREE_IMAGE_CLASS;
-            insert.item.lParam = (LPARAM)copy_tree_target(studio.navigation_files[file_index].path,
-                                                          definitions[class_index].line, 0, 0);
+            insert.item.lParam =
+                (LPARAM)copy_tree_target(studio.navigation_files[file_index].path,
+                                         definitions[class_index].line, TREE_TARGET_SYMBOL);
             class_item = TreeView_InsertItem(studio.tree, &insert);
             for (int member_index = 0; member_index < count; member_index++) {
                 if (definitions[member_index].kind != SYMBOL_METHOD ||
@@ -851,8 +859,9 @@ void studio_populate_class_tree(void)
                 insert.item.pszText = definitions[member_index].name;
                 insert.item.iImage = TREE_IMAGE_FUNCTION;
                 insert.item.iSelectedImage = TREE_IMAGE_FUNCTION;
-                insert.item.lParam = (LPARAM)copy_tree_target(
-                    studio.navigation_files[file_index].path, definitions[member_index].line, 0, 0);
+                insert.item.lParam =
+                    (LPARAM)copy_tree_target(studio.navigation_files[file_index].path,
+                                             definitions[member_index].line, TREE_TARGET_SYMBOL);
                 TreeView_InsertItem(studio.tree, &insert);
             }
         }
@@ -865,6 +874,9 @@ void studio_populate_class_tree(void)
     globals = TreeView_InsertItem(studio.tree, &insert);
     for (int file_index = 0; file_index < studio.navigation_file_count; file_index++) {
         SymbolDefinition definitions[256];
+
+        if (is_host_api_path(studio.navigation_files[file_index].path))
+            continue;
         int count = symbol_list_file_definitions(studio.navigation_files[file_index].path,
                                                  definitions, (int)ARRAYSIZE(definitions));
         for (int symbol_index = 0; symbol_index < count; symbol_index++) {
@@ -878,8 +890,9 @@ void studio_populate_class_tree(void)
                                      ? TREE_IMAGE_VARIABLE
                                      : TREE_IMAGE_FUNCTION;
             insert.item.iSelectedImage = insert.item.iImage;
-            insert.item.lParam = (LPARAM)copy_tree_target(studio.navigation_files[file_index].path,
-                                                          definitions[symbol_index].line, 0, 0);
+            insert.item.lParam =
+                (LPARAM)copy_tree_target(studio.navigation_files[file_index].path,
+                                         definitions[symbol_index].line, TREE_TARGET_SYMBOL);
             TreeView_InsertItem(studio.tree, &insert);
         }
     }

@@ -623,36 +623,59 @@ void studio_replace_text_dialog(void)
 
 void studio_find_in_files_dialog(void)
 {
-    char search[256];
     char selected[256];
-    int matches = 0;
 
+    if (editor_selected_text(studio.editor, selected, sizeof(selected)))
+        SetWindowTextA(studio.global_find, selected);
+    else if (studio.find_text[0])
+        SetWindowTextA(studio.global_find, studio.find_text);
+    SetFocus(studio.global_find);
+    SendMessageA(studio.global_find, EM_SETSEL, 0, -1);
+}
+
+static int contains_text(const char *line, const char *text)
+{
+    size_t line_length = strlen(line);
+    size_t text_length = strlen(text);
+
+    if (text_length == 0 || text_length > line_length)
+        return 0;
+    for (size_t offset = 0; offset + text_length <= line_length; offset++) {
+        if (_strnicmp(line + offset, text, text_length) == 0)
+            return 1;
+    }
+    return 0;
+}
+
+void studio_run_global_find(void)
+{
+    int matches = 0;
+    int matched_files = 0;
+
+    GetWindowTextA(studio.global_find, studio.find_text, sizeof(studio.find_text));
+    if (!studio.find_text[0]) {
+        studio_find_in_files_dialog();
+        return;
+    }
     if (!studio.project_loaded) {
         studio_show_error(studio.window, "Open a .qsp project first.");
         return;
     }
-    if (editor_selected_text(studio.editor, selected, sizeof(selected)))
-        snprintf(search, sizeof(search), "%s", selected);
-    else
-        snprintf(search, sizeof(search), "%s", studio.find_text);
-    if (!input_dialog_show(studio.window, "Find in Files", "Find what:", search, search,
-                           sizeof(search)) ||
-        !search[0])
-        return;
-    snprintf(studio.find_text, sizeof(studio.find_text), "%s", search);
+    studio_refresh_navigation_files();
     studio_open_bottom_page(PAGE_OUTPUT);
-    studio_output_append("Find in Files: %s\r\n", search);
+    studio_output_append("Find in Files: \"%s\"\r\n", studio.find_text);
     for (int index = 0; index < studio.navigation_file_count; index++) {
         FILE *file = fopen(studio.navigation_files[index].path, "rb");
         char line[8192];
         int line_number = 0;
+        int file_matches = 0;
 
         if (!file)
             continue;
         while (fgets(line, sizeof(line), file)) {
             char *end;
             line_number++;
-            if (!strstr(line, search))
+            if (!contains_text(line, studio.find_text))
                 continue;
             end = line + strlen(line);
             while (end > line && (end[-1] == '\r' || end[-1] == '\n'))
@@ -660,10 +683,15 @@ void studio_find_in_files_dialog(void)
             studio_output_append("%s(%d): %s\r\n", studio.navigation_files[index].path, line_number,
                                  line);
             matches++;
+            file_matches++;
         }
         fclose(file);
+        if (file_matches > 0)
+            matched_files++;
     }
-    studio_output_append("Find in Files complete: %d match(es).\r\n", matches);
+    studio_output_append("Find in Files complete: %d match(es) in %d file(s).\r\n", matches,
+                         matched_files);
+    studio_set_status(matches > 0 ? "Find in Files complete" : "Text not found in project");
 }
 
 void studio_go_to_line_dialog(void)

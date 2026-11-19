@@ -2718,7 +2718,7 @@ void ScintillaWin::SetHorizontalScrollPos() {
 }
 
 bool ScintillaWin::ChangeScrollRange(int nBar, int nMin, int nMax, UINT nPage) noexcept {
-	SCROLLINFO sci = { sizeof(sci), SIF_PAGE | SIF_RANGE, 0, 0, 0, 0, 0 };
+	SCROLLINFO sci = { sizeof(sci), SIF_PAGE | SIF_RANGE | SIF_DISABLENOSCROLL, 0, 0, 0, 0, 0 };
 	GetScrollInfo(nBar, &sci);
 	if ((sci.nMin != nMin) || (sci.nMax != nMax) ||	(sci.nPage != nPage)) {
 		sci.nMin = nMin;

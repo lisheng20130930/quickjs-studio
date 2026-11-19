@@ -173,17 +173,6 @@ int studio_add_watch(const char *text)
     return studio.watch_count - 1;
 }
 
-void studio_add_watch_expression(void)
-{
-    char expression[256];
-
-    GetWindowTextA(studio.watch_edit, expression, sizeof(expression));
-    if (studio_add_watch(expression) < 0)
-        return;
-    SetWindowTextA(studio.watch_edit, "");
-    SetFocus(studio.watch_edit);
-}
-
 void studio_add_editor_selection_to_watch(void)
 {
     char expression[256];

@@ -3,18 +3,41 @@
 #include "Scintilla.h"
 #include "editor.h"
 
+#include <limits.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 StudioWindow studio;
 
-LRESULT CALLBACK studio_watch_edit_proc(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
+static void open_selected_tree_item(void);
+
+LRESULT CALLBACK studio_toolbar2_proc(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
+{
+    if (message == WM_COMMAND || message == WM_NOTIFY)
+        return SendMessageA(GetParent(window), message, wparam, lparam);
+    return CallWindowProcA(studio.old_toolbar2_proc, window, message, wparam, lparam);
+}
+
+LRESULT CALLBACK studio_global_find_proc(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
 {
     if (message == WM_KEYDOWN && wparam == VK_RETURN) {
-        studio_add_watch_expression();
+        studio_run_global_find();
         return 0;
     }
-    return CallWindowProcA(studio.old_watch_edit_proc, window, message, wparam, lparam);
+    if (message == WM_KEYDOWN && wparam == VK_ESCAPE) {
+        SetFocus(studio.editor);
+        return 0;
+    }
+    return CallWindowProcA(studio.old_global_find_proc, window, message, wparam, lparam);
+}
+
+LRESULT CALLBACK studio_tabs_proc(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
+{
+    if (message == WM_NOTIFY || message == WM_COMMAND || message == WM_CTLCOLORSTATIC ||
+        message == WM_CTLCOLOREDIT)
+        return SendMessageA(GetParent(window), message, wparam, lparam);
+    return CallWindowProcA(studio.old_tabs_proc, window, message, wparam, lparam);
 }
 
 LRESULT CALLBACK studio_editor_proc(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
@@ -107,27 +130,49 @@ LRESULT CALLBACK studio_editor_proc(HWND window, UINT message, WPARAM wparam, LP
     return CallWindowProcA(studio.old_editor_proc, window, message, wparam, lparam);
 }
 
+static int navigate_from_output_text(char *text)
+{
+    char *marker = text;
+
+    while ((marker = strchr(marker, '(')) != NULL) {
+        char *number_end;
+        long source_line = strtol(marker + 1, &number_end, 10);
+
+        if (number_end > marker + 1 && number_end[0] == ')' && number_end[1] == ':' &&
+            source_line > 0 && source_line <= INT_MAX) {
+            char saved = *marker;
+            DWORD attributes;
+
+            *marker = '\0';
+            attributes = GetFileAttributesA(text);
+            if (attributes != INVALID_FILE_ATTRIBUTES && !(attributes & FILE_ATTRIBUTE_DIRECTORY)) {
+                studio_navigate_to(text, (int)source_line);
+                return 1;
+            }
+            *marker = saved;
+        }
+        marker++;
+    }
+    return 0;
+}
+
 LRESULT CALLBACK studio_output_proc(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
 {
     if (message == WM_LBUTTONDBLCLK) {
         POINT point = {(LONG)(short)LOWORD(lparam), (LONG)(short)HIWORD(lparam)};
         LRESULT character = SendMessageA(window, EM_CHARFROMPOS, 0, MAKELPARAM(point.x, point.y));
-        int line = (int)SendMessageA(window, EM_LINEFROMCHAR, LOWORD(character), 0);
+        int line = (int)HIWORD(character);
         int start = (int)SendMessageA(window, EM_LINEINDEX, line, 0);
         int length = (int)SendMessageA(window, EM_LINELENGTH, start, 0);
         char text[4096];
-        char *line_marker;
-        int source_line;
 
         if (length > 0 && length < (int)sizeof(text) - 1) {
             *(WORD *)text = (WORD)length;
             length = (int)SendMessageA(window, EM_GETLINE, line, (LPARAM)text);
             text[length] = '\0';
-            line_marker = strrchr(text, '(');
-            if (line_marker && sscanf(line_marker, "(%d):", &source_line) == 1) {
-                *line_marker = '\0';
-                if (GetFileAttributesA(text) != INVALID_FILE_ATTRIBUTES)
-                    studio_navigate_to(text, source_line);
+            if (navigate_from_output_text(text)) {
+                SendMessageA(window, EM_SETSEL, start, start + length);
+                return 0;
             }
         }
     }
@@ -270,7 +315,7 @@ static LRESULT handle_command(HWND window, int command)
         break;
     case ID_VIEW_WATCH:
         studio_open_bottom_page(PAGE_WATCH);
-        SetFocus(studio.watch_edit);
+        SetFocus(studio.watch_list);
         break;
     case ID_VIEW_WORKSPACE:
         studio.workspace_visible = !studio.workspace_visible;
@@ -317,8 +362,11 @@ static LRESULT handle_command(HWND window, int command)
     case ID_PROJECT_PROPERTIES:
         studio_show_project_properties();
         break;
-    case ID_WATCH_ADD:
-        studio_add_watch_expression();
+    case ID_PROJECT_OPEN_ITEM:
+        open_selected_tree_item();
+        break;
+    case ID_GLOBAL_FIND_BUTTON:
+        studio_run_global_find();
         break;
     case ID_WIZARD_ACTION:
         studio_go_to_definition();
@@ -369,24 +417,41 @@ static void show_tree_context_menu(void)
     TreeView_HitTest(studio.tree, &hit);
     if (hit.hItem)
         TreeView_SelectItem(studio.tree, hit.hItem);
+    else
+        TreeView_SelectItem(studio.tree, NULL);
     target = studio_selected_tree_target();
     menu = CreatePopupMenu();
     if (studio.left_page == PAGE_FILE_VIEW) {
-        AppendMenuA(menu, MF_STRING, ID_PROJECT_NEW_FOLDER, "New Folder...");
-        AppendMenuA(menu, MF_STRING, ID_PROJECT_ADD_FILES, "Add Files to Folder...");
-        AppendMenuA(menu, MF_STRING, ID_FILE_NEW_SCRIPT, "New JavaScript File...");
-        if (target && target->is_physical) {
+        if (!target) {
+            AppendMenuA(menu, MF_STRING, ID_PROJECT_REFRESH, "Refresh");
+        } else if (target->kind == TREE_TARGET_WORKSPACE) {
+            AppendMenuA(menu, MF_STRING, ID_FILE_CLOSE_WORKSPACE, "Close Workspace");
+            AppendMenuA(menu, MF_STRING, ID_PROJECT_REFRESH, "Refresh");
+        } else if (target->kind == TREE_TARGET_PROJECT) {
+            AppendMenuA(menu, MF_STRING, ID_FILE_NEW_SCRIPT, "New JavaScript File...");
+            AppendMenuA(menu, MF_STRING, ID_PROJECT_NEW_FOLDER, "New Folder...");
+            AppendMenuA(menu, MF_STRING, ID_PROJECT_ADD_FILES, "Add Existing Files...");
+            AppendMenuA(menu, MF_SEPARATOR, 0, NULL);
+            AppendMenuA(menu, MF_STRING, ID_EDIT_FIND_IN_FILES, "Find in Files...");
+            AppendMenuA(menu, MF_STRING, ID_PROJECT_REFRESH, "Refresh");
+            AppendMenuA(menu, MF_STRING, ID_PROJECT_PROPERTIES, "Settings...");
+        } else if (target->kind == TREE_TARGET_GROUP || target->kind == TREE_TARGET_DIRECTORY) {
+            AppendMenuA(menu, MF_STRING, ID_FILE_NEW_SCRIPT, "New JavaScript File...");
+            AppendMenuA(menu, MF_STRING, ID_PROJECT_NEW_FOLDER, "New Folder...");
+            AppendMenuA(menu, MF_STRING, ID_PROJECT_ADD_FILES, "Add Existing Files...");
+            if (target->kind == TREE_TARGET_DIRECTORY) {
+                AppendMenuA(menu, MF_SEPARATOR, 0, NULL);
+                AppendMenuA(menu, MF_STRING, ID_PROJECT_RENAME, "Rename");
+                AppendMenuA(menu, MF_STRING, ID_PROJECT_REMOVE, "Remove From Project");
+            }
+            AppendMenuA(menu, MF_SEPARATOR, 0, NULL);
+            AppendMenuA(menu, MF_STRING, ID_PROJECT_REFRESH, "Refresh");
+        } else if (target->kind == TREE_TARGET_FILE) {
+            AppendMenuA(menu, MF_STRING, ID_PROJECT_OPEN_ITEM, "Open");
             AppendMenuA(menu, MF_SEPARATOR, 0, NULL);
             AppendMenuA(menu, MF_STRING, ID_PROJECT_RENAME, "Rename");
             AppendMenuA(menu, MF_STRING, ID_PROJECT_REMOVE, "Remove From Project");
         }
-        AppendMenuA(menu, MF_SEPARATOR, 0, NULL);
-        AppendMenuA(menu, MF_STRING, ID_PROJECT_REFRESH, "Refresh");
-        AppendMenuA(menu, MF_STRING, ID_PROJECT_PROPERTIES, "Settings...");
-        AppendMenuA(menu, MF_SEPARATOR, 0, NULL);
-        AppendMenuA(menu, MF_STRING | MF_CHECKED | MF_GRAYED, 0, "Docking View");
-        AppendMenuA(menu, MF_STRING, ID_VIEW_WORKSPACE, "Hide");
-        AppendMenuA(menu, MF_STRING, ID_PROJECT_PROPERTIES, "Properties");
     } else {
         AppendMenuA(menu, MF_STRING, ID_WIZARD_ACTION, "Go To Definition");
         AppendMenuA(menu, MF_SEPARATOR, 0, NULL);
@@ -396,7 +461,7 @@ static void show_tree_context_menu(void)
     command = TrackPopupMenu(menu, TPM_RETURNCMD | TPM_RIGHTBUTTON, screen.x, screen.y, 0,
                              studio.window, NULL);
     DestroyMenu(menu);
-    if (command == ID_WIZARD_ACTION)
+    if (command == ID_WIZARD_ACTION || command == ID_PROJECT_OPEN_ITEM)
         open_selected_tree_item();
     else if (command)
         handle_command(studio.window, command);
@@ -485,13 +550,6 @@ static LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM wparam, LP
             return 0;
         }
         return handle_command(window, LOWORD(wparam));
-    case WM_CTLCOLOREDIT:
-        if ((HWND)lparam == studio.watch_edit) {
-            SetTextColor((HDC)wparam, GetSysColor(COLOR_WINDOWTEXT));
-            SetBkColor((HDC)wparam, GetSysColor(COLOR_WINDOW));
-            return (LRESULT)GetSysColorBrush(COLOR_WINDOW);
-        }
-        break;
     case WM_CTLCOLORSTATIC:
         if ((HWND)lparam == studio.document_background) {
             SetBkColor((HDC)wparam, GetSysColor(COLOR_APPWORKSPACE));
@@ -508,9 +566,10 @@ static LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM wparam, LP
         break;
     case WM_NOTIFY: {
         NMHDR *header = (NMHDR *)lparam;
-        if (header->idFrom == ID_BOTTOM_TABS && header->code == TCN_SELCHANGE)
+        if (header->idFrom == ID_BOTTOM_TABS && header->code == TCN_SELCHANGE) {
             studio_show_bottom_page(TabCtrl_GetCurSel(studio.tabs));
-        else if (header->idFrom == ID_LEFT_TABS && header->code == TCN_SELCHANGE)
+            studio_layout_controls(window);
+        } else if (header->idFrom == ID_LEFT_TABS && header->code == TCN_SELCHANGE)
             studio_show_left_page(TabCtrl_GetCurSel(studio.left_tabs));
         else if (header->idFrom == ID_EDITOR && header->code == SCN_MARGINCLICK) {
             SCNotification *notification = (SCNotification *)lparam;
@@ -612,6 +671,10 @@ static LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM wparam, LP
     case WM_DESTROY:
         debug_session_stop(&studio.debug);
         editor_unload_components();
+        if (studio.global_find_icon) {
+            DestroyIcon(studio.global_find_icon);
+            studio.global_find_icon = NULL;
+        }
         if (studio.toolbar_images) {
             SendMessageA(studio.toolbar, TB_SETIMAGELIST, 0, 0);
             ImageList_Destroy(studio.toolbar_images);
@@ -667,8 +730,8 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE previous, LPSTR command_line, i
     (void)show;
 
     memset(&studio, 0, sizeof(studio));
-    studio.left_width = 210;
-    studio.bottom_height = 190;
+    studio.left_width = 240;
+    studio.bottom_height = 160;
     studio.workspace_visible = 1;
     studio.toolbar_visible = 1;
     studio.wizardbar_visible = 1;
