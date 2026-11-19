@@ -1,0 +1,8 @@
+[Project]
+Name=QuickJS Debug Sample
+Executable=../build/windows/bin/qjs-host.exe
+Arguments="$(ProjectDir)\math\distance.js" "$(ProjectDir)\game\player.js" "$(ProjectDir)\game\update.js" "$(Entry)"
+WorkingDirectory=.
+ScriptRoot=.
+Entry=game.js
+HostApi=api/engine.api.js

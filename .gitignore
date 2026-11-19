@@ -1,0 +1,7 @@
+/build/
+*.o
+*.a
+*.dll
+*.exe
+third_party/quickjs/.obj/
+third_party/quickjs/obj_win64/
