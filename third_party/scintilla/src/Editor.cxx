@@ -4817,8 +4817,10 @@ void Editor::ButtonDownWithModifiers(Point pt, unsigned int curTime, KeyMod modi
 	//Platform::DebugPrintf("ButtonDown %d %d = %d alt=%d %d\n", curTime, lastClickTime, curTime - lastClickTime, alt, inDragDrop);
 	ptMouseLast = pt;
 	const bool ctrl = FlagSet(modifiers, KeyMod::Ctrl);
-	const bool shift = FlagSet(modifiers, KeyMod::Shift);
 	const bool alt = FlagSet(modifiers, KeyMod::Alt);
+	// Match VS Code: Alt+Shift+mouse drag starts a fresh rectangular
+	// selection at the click position instead of extending the old selection.
+	const bool shift = FlagSet(modifiers, KeyMod::Shift) && !alt;
 	const SelectionPosition clickPos = SPositionFromLocation(pt, false, false, AllowVirtualSpace(virtualSpaceOptions, alt));
 	const SelectionPosition newPos = MovePositionOutsideChar(clickPos, sel.MainCaret() - clickPos.Position());
 	const SelectionPosition newCharPos = MovePositionOutsideChar(

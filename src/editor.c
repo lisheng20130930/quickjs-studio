@@ -441,6 +441,9 @@ static void configure_styles(HWND editor)
     sci(editor, SCI_SETINDENT, 4, 0);
     sci(editor, SCI_SETTABINDENTS, TRUE, 0);
     sci(editor, SCI_SETBACKSPACEUNINDENTS, TRUE, 0);
+    /* Match VS Code's column-selection gesture: Alt+Shift+mouse drag. */
+    sci(editor, SCI_SETMOUSESELECTIONRECTANGULARSWITCH, TRUE, 0);
+    sci(editor, SCI_SETVIRTUALSPACEOPTIONS, SCVS_RECTANGULARSELECTION, 0);
     sci(editor, SCI_SETVSCROLLBAR, TRUE, 0);
     sci(editor, SCI_SETHSCROLLBAR, TRUE, 0);
     sci(editor, SCI_SETSCROLLWIDTH, 1, 0);

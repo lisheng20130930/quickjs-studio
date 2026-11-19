@@ -16,6 +16,7 @@ QuickJS Studio 是一个面向嵌入式 QuickJS 程序的轻量 Windows JavaScri
 - 编辑器上方采用 Visual Assist Navigation Bar：Context Field 显示光标下的符号，Definition Field 显示其真实定义；Context 下拉列表可浏览当前文件的方法；
 - 光标放在函数调用、方法或类名上，点击 `Go`、按 F12 或使用右键 `Go to Definition`，可直接跳到同文件或跨文件实现；
 - `Alt+Left` / `Alt+Right` 可在源码跳转历史中后退和前进；切换文件时会保留各文件的光标、选择区和滚动位置；
+- 按住 `Alt+Shift` 并拖动鼠标，可像 VS Code 一样进行竖向矩形选择；
 - 编辑器采用 Visual Assist 风格的增强语义着色：类型/类为蓝色、变量为深蓝色、函数/方法为棕色、全大写常量为紫红色，同时保留系统豆沙绿背景；
 - JavaScript 自动补全：输入两个标识符字符自动弹出候选，输入 `.` 弹出常用成员，`Ctrl+Space` 可随时强制补全；候选综合当前文件、整个工程和常用 JavaScript API；
 - 宿主 API 声明：通过 `.qsp` 的 `HostApi` 指定 `.quickjs-studio/host-api.js`，为 `Engine.log()` 一类 QuickJS 宿主接口提供精确成员补全、定义显示和跳转；使用方法见 [宿主 API 声明](docs/HOST-API.md)；
